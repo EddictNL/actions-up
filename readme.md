@@ -26,6 +26,8 @@ reproducible CI, or preserve tag-style references when you need to stay on tags.
   level
 - **Flexible update styles**: Use SHA pinning by default, or preserve tag-style
   references with `--style preserve`
+- **Configurable detection**: Detect updates by version labels (default) or by
+  resolved commit changes with `--detect-by commit`
 - **Batch Updates**: Update multiple actions at once
 - **Interactive Selection**: Choose which actions to update
 - **Breaking Changes Detection**: Warns about major version updates
@@ -216,6 +218,27 @@ npx actions-up --style preserve
 `preserve` keeps tag references on tags and SHA references on SHAs. For example,
 `actions/checkout@v5` updates to `actions/checkout@v6.0.2`, while a SHA-pinned
 action continues updating to the latest resolved SHA.
+
+`--style` controls how updates are written to files. It does not change how
+updates are detected.
+
+### Update Detection
+
+By default, Actions Up detects updates by version labels:
+
+```bash
+npx actions-up --detect-by version
+```
+
+Use `--detect-by commit` to only report tag-based updates when the resolved
+commit actually changes:
+
+```bash
+npx actions-up --detect-by commit
+```
+
+This is useful for moving major tags or aliases where `v7` and `v7.0.1` may
+point to the same SHA.
 
 ## GitHub Actions Integration
 

@@ -3,7 +3,7 @@ import semver from 'semver'
 import type { GitHubClient } from '../../types/github-client'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
-import type { UpdateStyle } from '../../types/update-style'
+import type { UpdateDetection } from '../../types/update-detection'
 
 import { normalizeVersion } from '../versions/normalize-version'
 import { createGitHubClient } from './create-github-client'
@@ -69,12 +69,12 @@ export async function checkUpdates(
   options?: {
     includeBranches?: boolean
     client?: GitHubClient
-    style?: UpdateStyle
+    detectBy?: UpdateDetection
   },
 ): Promise<ActionUpdate[]> {
   let client = options?.client ?? createGitHubClient(token)
   let includeBranches = options?.includeBranches ?? false
-  let style = options?.style ?? 'sha'
+  let detectBy = options?.detectBy ?? 'version'
 
   /**
    * Filter external actions and reusable workflows.
@@ -482,37 +482,52 @@ export async function checkUpdates(
    * Create updates for all actions.
    */
   let updates: ActionUpdate[] = []
+  let currentTagShaCache = new Map<string, string | null>()
 
   for (let action of externalActions) {
     let cached = cache.get(action.name)
     if (cached) {
-      updates.push(
-        createUpdate(
-          action,
-          {
-            publishedAt: cached.publishedAt,
-            version: cached.version,
-            sha: cached.sha,
-          },
-          {
-            currentRefType: cached.currentRefType,
-            skipReason: cached.skipReason,
-            status: cached.status,
-            style,
-          },
-        ),
+      let update = createUpdate(
+        action,
+        {
+          publishedAt: cached.publishedAt,
+          version: cached.version,
+          sha: cached.sha,
+        },
+        {
+          currentRefType: cached.currentRefType,
+          skipReason: cached.skipReason,
+          status: cached.status,
+        },
       )
+
+      update = await applyCommitDetection(
+        update,
+        action,
+        detectBy,
+        client,
+        currentTagShaCache,
+      )
+
+      updates.push(update)
     } else {
-      updates.push(
-        createUpdate(
-          action,
-          { publishedAt: null, version: null, sha: null },
-          {
-            currentRefType: deriveCurrentReferenceType(action.version),
-            style,
-          },
-        ),
+      let update = createUpdate(
+        action,
+        { publishedAt: null, version: null, sha: null },
+        {
+          currentRefType: deriveCurrentReferenceType(action.version),
+        },
       )
+
+      update = await applyCommitDetection(
+        update,
+        action,
+        detectBy,
+        client,
+        currentTagShaCache,
+      )
+
+      updates.push(update)
     }
   }
 
@@ -534,7 +549,6 @@ function createUpdate(
     currentRefType: ActionUpdate['currentRefType']
     skipReason?: ActionUpdate['skipReason']
     status?: ActionUpdate['status']
-    style: UpdateStyle
   },
 ): ActionUpdate {
   let { version: latestVersion, sha: latestSha, publishedAt } = latest
@@ -542,7 +556,6 @@ function createUpdate(
   let currentVersion = normalizeVersion(currentVersionRaw)
   let normalized = latestVersion ? normalizeVersion(latestVersion) : null
   let currentReferenceType = meta.currentRefType
-  let { style } = meta
 
   /**
    * Default status is ok unless explicitly marked skipped.
@@ -586,20 +599,6 @@ function createUpdate(
         let latestMajor = semver.major(latestSemver)
         isBreaking = latestMajor > currentMajor
       }
-      /**
-       * If versions are equal but current ref is an unpinned tag and latest SHA
-       * is known, suggest pinning to SHA.
-       */
-      if (
-        !hasUpdate &&
-        semver.eq(currentSemver, latestSemver) &&
-        !isSha(action.version) &&
-        latestSha &&
-        style === 'sha'
-      ) {
-        hasUpdate = true
-        isBreaking = false
-      }
     } else if (currentVersion !== normalized) {
       hasUpdate = true
     }
@@ -617,6 +616,70 @@ function createUpdate(
     action,
     status,
   }
+}
+
+async function applyCommitDetection(
+  update: ActionUpdate,
+  action: GitHubAction,
+  detectBy: UpdateDetection,
+  client: GitHubClient,
+  currentTagShaCache: Map<string, string | null>,
+): Promise<ActionUpdate> {
+  if (detectBy !== 'commit') {
+    return update
+  }
+
+  if (
+    !update.hasUpdate ||
+    !update.latestSha ||
+    update.status === 'skipped' ||
+    update.currentRefType !== 'tag' ||
+    !action.version
+  ) {
+    return update
+  }
+
+  let parsed = parseOwnerRepo(action.name)
+  if (!parsed) {
+    return update
+  }
+
+  let cacheKey = `${action.name}@${action.version}`
+  let currentTagSha: string | null
+  if (currentTagShaCache.has(cacheKey)) {
+    currentTagSha = currentTagShaCache.get(cacheKey) ?? null
+  } else {
+    try {
+      currentTagSha = await client.getTagSha(
+        parsed.owner,
+        parsed.repo,
+        action.version,
+      )
+    } catch {
+      currentTagSha = null
+    }
+    currentTagShaCache.set(cacheKey, currentTagSha)
+  }
+
+  if (currentTagSha && compareSha(currentTagSha, update.latestSha)) {
+    return { ...update, hasUpdate: false, isBreaking: false }
+  }
+
+  return update
+}
+
+function parseOwnerRepo(actionName: string): { owner: string; repo: string } | null {
+  let segments = actionName.split('/')
+  if (segments.length < 2) {
+    return null
+  }
+
+  let [owner, repo] = segments
+  if (!owner || !repo) {
+    return null
+  }
+
+  return { owner, repo }
 }
 
 /**

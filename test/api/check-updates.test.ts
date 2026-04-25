@@ -1659,7 +1659,7 @@ describe('checkUpdates', () => {
     })
   })
 
-  it('suggests pinning to SHA when unpinned tag resolves to a known commit', async () => {
+  it('does not mark update when tag version is unchanged', async () => {
     let accessCount = 0
     let action = {
       uses: 'owner/repo@v1',
@@ -1704,18 +1704,18 @@ describe('checkUpdates', () => {
     expect(update?.latestVersion).toBe('v1.0.0')
     expect(update?.latestSha).toBe('tagSha')
     expect(update?.isBreaking).toBeFalsy()
-    expect(update?.hasUpdate).toBeTruthy()
+    expect(update?.hasUpdate).toBeFalsy()
   })
 
-  it('does not suggest pinning when style is preserve and tag version is unchanged', async () => {
+  it('does not mark update in commit mode when current and latest tag SHAs match', async () => {
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
         publishedAt: new Date('2024-01-01'),
         isPrerelease: false,
         description: null,
-        version: 'v1.0.0',
-        name: 'v1.0.0',
-        sha: 'tagSha',
+        version: 'v7.0.1',
+        name: 'v7.0.1',
+        sha: 'sameSha',
         url: 'u',
       }),
       getAllReleases: vi.fn().mockResolvedValue([]),
@@ -1724,29 +1724,73 @@ describe('checkUpdates', () => {
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
       getTagInfo: vi.fn(),
-      getTagSha: vi.fn(),
+      getTagSha: vi.fn().mockResolvedValue('sameSha'),
     }
     vi.mocked(createGitHubClient).mockReturnValue(client)
 
     let actions: GitHubAction[] = [
       {
-        uses: 'owner/repo@v1.0.0',
-        ref: 'owner/repo@v1.0.0',
+        uses: 'owner/repo@v7',
+        ref: 'owner/repo@v7',
         name: 'owner/repo',
-        version: 'v1.0.0',
+        version: 'v7',
         type: 'external',
       },
     ]
 
     let result = await checkUpdates(actions, undefined, {
-      style: 'preserve',
+      detectBy: 'commit',
+    })
+
+    expect(client.getTagSha).toHaveBeenCalledWith('owner', 'repo', 'v7')
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v7.0.1',
+      currentRefType: 'tag',
+      latestSha: 'sameSha',
+      hasUpdate: false,
+    })
+  })
+
+  it('marks update in version mode when tag label is newer even if SHAs match', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v7.0.1',
+        name: 'v7.0.1',
+        sha: 'sameSha',
+        url: 'u',
+      }),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn().mockResolvedValue('sameSha'),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v7',
+        ref: 'owner/repo@v7',
+        name: 'owner/repo',
+        version: 'v7',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions, undefined, {
+      detectBy: 'version',
     })
 
     expect(result[0]).toMatchObject({
-      latestVersion: 'v1.0.0',
+      latestVersion: 'v7.0.1',
       currentRefType: 'tag',
-      latestSha: 'tagSha',
-      hasUpdate: false,
+      latestSha: 'sameSha',
+      hasUpdate: true,
     })
   })
 

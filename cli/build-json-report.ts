@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve } from 'node:path'
 
 import type { ActionUpdate } from '../types/action-update'
+import type { UpdateDetection } from '../types/update-detection'
 import type { UpdateStyle } from '../types/update-style'
 import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
@@ -77,6 +78,11 @@ interface BuildJsonReportOptions {
    * Effective update mode for the run.
    */
   mode: UpdateMode
+
+  /**
+   * Effective update detection strategy for the run.
+   */
+  detectBy: UpdateDetection
 
   /**
    * Minimum age filter in days.
@@ -234,6 +240,11 @@ interface JsonReportOptions {
   mode: UpdateMode
 
   /**
+   * Effective update detection strategy.
+   */
+  detectBy: UpdateDetection
+
+  /**
    * Indicates that JSON mode never applies changes.
    */
   reportOnly: true
@@ -364,6 +375,7 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       recursive: options.recursive,
       minAge: options.minAge,
       style: options.style,
+      detectBy: options.detectBy,
       mode: options.mode,
       reportOnly: true,
       json: true,

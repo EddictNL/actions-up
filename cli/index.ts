@@ -9,6 +9,7 @@ import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
 import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
+import type { UpdateDetection } from '../types/update-detection'
 
 import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
@@ -19,6 +20,7 @@ import { resolveScanDirectories } from './resolve-scan-directories'
 import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { normalizeUpdateStyle } from './normalize-update-style'
+import { normalizeUpdateDetection } from './normalize-update-detection'
 import { printSkippedWarning } from './print-skipped-warning'
 import { normalizeUpdateMode } from './normalize-update-mode'
 import { validateCliOptions } from './validate-cli-options'
@@ -60,6 +62,11 @@ interface CLIOptions {
    * Update style (sha or preserve).
    */
   style?: UpdateStyle
+
+  /**
+   * Update detection strategy (version or commit).
+   */
+  detectBy?: UpdateDetection
 
   /**
    * Update mode (major, minor, patch).
@@ -159,6 +166,13 @@ export function run(): void {
     .option('--style <style>', 'Update style: sha or preserve (default: sha)', {
       default: 'sha',
     })
+    .option(
+      '--detect-by <strategy>',
+      'Update detection: version or commit (default: version)',
+      {
+        default: 'version',
+      },
+    )
     .option('--recursive, -r', 'Recursively scan directories for YAML files')
     .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
@@ -176,6 +190,7 @@ export function run(): void {
       let includeBranches = options.includeBranches ?? false
       let mode = normalizeUpdateMode(options.mode)
       let style = normalizeUpdateStyle(options.style)
+      let detectBy = normalizeUpdateDetection(options.detectBy)
       let rawExcludes: string[] = []
       if (Array.isArray(options.exclude)) {
         rawExcludes.push(...options.exclude)
@@ -224,6 +239,7 @@ export function run(): void {
                 skipped,
                 status,
                 style,
+                detectBy,
                 mode,
               }),
               null,
@@ -319,7 +335,7 @@ export function run(): void {
         let updates = await checkUpdates(actionsToCheck, token, {
           client: githubClient,
           includeBranches,
-          style,
+          detectBy,
         })
 
         /**
