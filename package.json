@@ -14,8 +14,8 @@
     "dependencies",
     "update"
   ],
-  "homepage": "https://github.com/azat-io/actions-up",
-  "repository": "azat-io/actions-up",
+  "homepage": "https://github.com/EddictNL/actions-up",
+  "repository": "EddictNL/actions-up",
   "license": "MIT",
   "author": "Azat S. <to@azat.io>",
   "type": "module",
