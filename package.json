@@ -35,6 +35,9 @@
     "./bin",
     "./dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "vite build",
     "ci:changelog": "changelogithub",
