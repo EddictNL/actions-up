@@ -69,11 +69,6 @@ interface CLIOptions {
   detectBy?: UpdateDetection
 
   /**
-   * Deprecated alias for detectBy.
-   */
-  updateDetection?: UpdateDetection
-
-  /**
    * Update mode (major, minor, patch).
    */
   mode?: UpdateMode
@@ -178,10 +173,6 @@ export function run(): void {
         default: 'version',
       },
     )
-    .option(
-      '--update-detection <strategy>',
-      'Deprecated alias for --detect-by',
-    )
     .option('--recursive, -r', 'Recursively scan directories for YAML files')
     .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
@@ -199,9 +190,7 @@ export function run(): void {
       let includeBranches = options.includeBranches ?? false
       let mode = normalizeUpdateMode(options.mode)
       let style = normalizeUpdateStyle(options.style)
-      let detectBy = normalizeUpdateDetection(
-        options.detectBy ?? options.updateDetection,
-      )
+      let detectBy = normalizeUpdateDetection(options.detectBy)
       let rawExcludes: string[] = []
       if (Array.isArray(options.exclude)) {
         rawExcludes.push(...options.exclude)
