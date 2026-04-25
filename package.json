@@ -1,6 +1,6 @@
 {
   "name": "@eddict/actions-up",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "description": "Interactive CLI tool to update GitHub Actions with SHA pinning or preserved refs",
   "keywords": [
     "github-actions",
