@@ -49,7 +49,13 @@ jobs:
       - name: Clear Package JSON
         run: pnpm run ci:clear
 
+      - name: Setup Node.js for Publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Publish Root Package to NPM
         run: npm publish --no-git-checks
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
