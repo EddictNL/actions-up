@@ -20,6 +20,7 @@ dist/
 .pnpm_store/
 node_modules/
 .nvmrc
+package-lock.json
 
 # Mise
 
