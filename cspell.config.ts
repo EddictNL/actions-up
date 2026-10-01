@@ -3,6 +3,7 @@ import { defineConfig } from 'cspell'
 export default defineConfig({
   words: [
     'azat',
+    'bridgecrewio',
     'changelogen',
     'changelogithub',
     'commitish',
@@ -20,6 +21,8 @@ export default defineConfig({
     'rcompare',
     'rolldown',
     'segs',
+    'worktree',
+    'xlarge',
     'zipball',
   ],
   ignorePaths: [

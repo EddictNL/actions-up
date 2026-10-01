@@ -2,19 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { GitHubClientContext } from '../../types/github-client-context'
 
+import { createClientContext } from '../helpers/create-client-context'
 import { makeRequest } from '../../core/api/make-request'
 
 describe('makeRequest', () => {
   beforeEach(() => vi.restoreAllMocks())
 
   function context(token?: string): GitHubClientContext {
-    return {
-      caches: { refType: new Map(), tagInfo: new Map(), tagSha: new Map() },
-      rateLimitRemaining: token ? 5000 : 60,
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      token,
-    }
+    return createClientContext({ rateLimitRemaining: token ? 5000 : 60, token })
   }
 
   it('sets Authorization header when token present', async () => {
@@ -24,7 +19,13 @@ describe('makeRequest', () => {
       return Promise.resolve(new Response('{}', { status: 200 }))
     })
     await makeRequest(context('t'), '/path')
-    expect(spy).toHaveBeenCalledOnce()
+    expect(spy).toHaveBeenCalledExactlyOnceWith('https://api.github.com/path', {
+      headers: {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'actions-up',
+        Authorization: 'Bearer t',
+      },
+    })
   })
 
   it('maps 403 with rate limit message to friendly error', async () => {
@@ -56,7 +57,7 @@ describe('makeRequest', () => {
         headers: {
           'x-ratelimit-reset': String(1700000001),
           'x-ratelimit-remaining': '123',
-        } as unknown as HeadersInit,
+        },
         status: 200,
       }),
     )

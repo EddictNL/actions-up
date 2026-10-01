@@ -7,7 +7,14 @@ export interface ActionUpdate {
   /**
    * Reason for skipping the update check.
    */
-  skipReason?: 'unsupported-style' | 'unknown' | 'branch'
+  skipReason?:
+    | 'ref-type-unavailable'
+    | 'unsupported-style'
+    | 'not-comparable'
+    | 'check-failed'
+    | 'tag-family'
+    | 'unknown'
+    | 'branch'
 
   /**
    * Detected style of the current reference in the source file.
@@ -18,6 +25,12 @@ export interface ActionUpdate {
    * Style of the final reference that should be written back to the file.
    */
   targetRefStyle?: 'sha' | 'tag' | null
+
+  /**
+   * True when rate limiting prevented validating floating tag candidates and
+   * the exact latest version was used as a fallback.
+   */
+  targetRefRateLimited?: boolean
 
   /**
    * Current version string.

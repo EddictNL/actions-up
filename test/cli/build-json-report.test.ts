@@ -101,17 +101,42 @@ describe('buildJsonReport', () => {
       },
     ]
 
+    let blockedByAge: ActionUpdate[] = [
+      {
+        action: {
+          file: '/repo/.github/workflows/audit.yml',
+          uses: 'owner/audit@v0.6.0',
+          name: 'owner/audit',
+          version: 'v0.6.0',
+          type: 'external',
+          line: 11,
+        },
+        latestSha: 'cccccccccccccccccccccccccccccccccccccccc',
+        publishedAt: new Date('2026-08-30T21:35:33.000Z'),
+        currentVersion: 'v0.6.0',
+        latestVersion: 'v0.6.3',
+        targetRefStyle: 'tag',
+        currentRefType: 'tag',
+        targetRef: 'v0.6.3',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
     let report = buildJsonReport({
       directories: ['/repo', '/repo/.github'],
+      minAgeExcludePatterns: ['^my-org/'],
       excludePatterns: ['^local/'],
       status: 'updates-available',
       actionsToCheckCount: 2,
       includeBranches: false,
+      preferTags: false,
       style: 'preserve',
       detectBy: 'version',
       recursive: true,
       blockedByMode,
       mode: 'minor',
+      blockedByAge,
       cwd: '/repo',
       scanResult,
       minAge: 3,
@@ -140,6 +165,31 @@ describe('buildJsonReport', () => {
           targetRefStyle: 'sha',
           currentVersion: 'v4',
           isBreaking: true,
+          skipReason: null,
+          hasUpdate: true,
+          status: 'ok',
+        },
+      ],
+      blockedByAge: [
+        {
+          action: {
+            file: '.github/workflows/audit.yml',
+            uses: 'owner/audit@v0.6.0',
+            name: 'owner/audit',
+            version: 'v0.6.0',
+            type: 'external',
+            ref: null,
+            job: null,
+            line: 11,
+          },
+          latestSha: 'cccccccccccccccccccccccccccccccccccccccc',
+          publishedAt: '2026-08-30T21:35:33.000Z',
+          currentVersion: 'v0.6.0',
+          latestVersion: 'v0.6.3',
+          currentRefType: 'tag',
+          targetRefStyle: 'tag',
+          targetRef: 'v0.6.3',
+          isBreaking: false,
           skipReason: null,
           hasUpdate: true,
           status: 'ok',
@@ -196,9 +246,11 @@ describe('buildJsonReport', () => {
         },
       ],
       options: {
+        minAgeExcludePatterns: ['^my-org/'],
         directories: ['.', '.github'],
         excludePatterns: ['^local/'],
         includeBranches: false,
+        preferTags: false,
         style: 'preserve',
         detectBy: 'version',
         reportOnly: true,
@@ -211,15 +263,103 @@ describe('buildJsonReport', () => {
         totalCompositeActions: 1,
         totalBreakingUpdates: 1,
         totalActionsChecked: 2,
+        totalRunnerUpdates: 0,
         totalBlockedByMode: 1,
+        totalBlockedByAge: 1,
         totalWorkflows: 2,
         totalActions: 2,
         totalSkipped: 1,
         totalUpdates: 1,
+        totalRunners: 0,
       },
       status: 'updates-available',
       schemaVersion: 1,
+      runners: [],
     })
+  })
+
+  it('reports runner updates apart from action updates', () => {
+    let runnerAction = {
+      file: '/repo/.github/workflows/ci.yml',
+      version: 'ubuntu-22.04',
+      type: 'runner' as const,
+      name: 'runner/ubuntu',
+      job: 'build',
+      line: 4,
+    }
+    let actionAction = {
+      file: '/repo/.github/workflows/ci.yml',
+      type: 'external' as const,
+      name: 'actions/checkout',
+      version: 'v4',
+      line: 6,
+    }
+
+    let report = buildJsonReport({
+      outdated: [
+        {
+          latestSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          targetRef: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          latestVersion: 'v5.0.0',
+          targetRefStyle: 'sha',
+          action: actionAction,
+          currentVersion: 'v4',
+          publishedAt: null,
+          isBreaking: true,
+          hasUpdate: true,
+        },
+        {
+          currentVersion: 'ubuntu-22.04',
+          latestVersion: 'ubuntu-24.04',
+          targetRef: 'ubuntu-24.04',
+          targetRefStyle: 'tag',
+          action: runnerAction,
+          publishedAt: null,
+          isBreaking: true,
+          latestSha: null,
+          hasUpdate: true,
+        },
+      ],
+      scanResult: {
+        workflows: new Map([['0:.github/workflows/ci.yml', []]]),
+        compositeActions: new Map<string, string>(),
+        actions: [runnerAction, actionAction],
+      },
+      status: 'updates-available',
+      minAgeExcludePatterns: [],
+      actionsToCheckCount: 2,
+      includeBranches: false,
+      excludePatterns: [],
+      directories: ['.'],
+      blockedByMode: [],
+      preferTags: false,
+      blockedByAge: [],
+      recursive: false,
+      mode: 'major',
+      cwd: '/repo',
+      style: 'sha',
+      skipped: [],
+      minAge: 1,
+    })
+
+    expect(report.updates).toHaveLength(1)
+    expect(report.updates[0]?.action.name).toBe('actions/checkout')
+    expect(report.runners).toHaveLength(1)
+    expect(report.runners[0]).toMatchObject({
+      action: { name: 'runner/ubuntu', type: 'runner' },
+      currentVersion: 'ubuntu-22.04',
+      latestVersion: 'ubuntu-24.04',
+      targetRef: 'ubuntu-24.04',
+    })
+
+    expect(report.summary).toMatchObject({
+      totalBreakingUpdates: 1,
+      totalRunnerUpdates: 1,
+      totalRunners: 1,
+      totalUpdates: 1,
+      totalActions: 1,
+    })
+    expect(report.schemaVersion).toBe(1)
   })
 
   it('keeps absolute paths when files are outside the current working directory', () => {
@@ -251,10 +391,13 @@ describe('buildJsonReport', () => {
       },
       directories: ['/tmp/shared'],
       status: 'updates-available',
+      minAgeExcludePatterns: [],
       actionsToCheckCount: 1,
       includeBranches: true,
       excludePatterns: [],
       blockedByMode: [],
+      blockedByAge: [],
+      preferTags: true,
       recursive: false,
       mode: 'major',
       style: 'sha',
@@ -265,6 +408,7 @@ describe('buildJsonReport', () => {
     })
 
     expect(report.options.directories).toEqual(['/tmp/shared'])
+    expect(report.options.preferTags).toBeTruthy()
     expect(report.updates[0]?.action.file).toBe('/tmp/shared/workflow.yml')
   })
 
@@ -310,11 +454,14 @@ describe('buildJsonReport', () => {
         workflows: new Map(),
         actions: [],
       },
+      minAgeExcludePatterns: [],
       actionsToCheckCount: 1,
       directories: ['/repo'],
       includeBranches: false,
       status: 'up-to-date',
       excludePatterns: [],
+      preferTags: false,
+      blockedByAge: [],
       recursive: false,
       mode: 'major',
       style: 'sha',
@@ -361,11 +508,14 @@ describe('buildJsonReport', () => {
         actions: [],
       },
       status: 'no-actions-found',
+      minAgeExcludePatterns: [],
       actionsToCheckCount: 0,
       includeBranches: false,
       excludePatterns: [],
       directories: [cwd],
+      preferTags: false,
       blockedByMode: [],
+      blockedByAge: [],
       recursive: false,
       mode: 'major',
       style: 'sha',
@@ -404,10 +554,13 @@ describe('buildJsonReport', () => {
       },
       directories: ['/repo/.github'],
       status: 'updates-available',
+      minAgeExcludePatterns: [],
       actionsToCheckCount: 1,
       includeBranches: false,
       excludePatterns: [],
+      preferTags: false,
       blockedByMode: [],
+      blockedByAge: [],
       recursive: false,
       mode: 'major',
       style: 'sha',

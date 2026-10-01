@@ -1,19 +1,10 @@
-import type { MockInstance } from 'vitest'
-
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { printSkippedWarning } from '../../cli/print-skipped-warning'
+import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 
 describe('printSkippedWarning', () => {
-  let consoleInfoSpy: MockInstance
-
-  beforeEach(() => {
-    consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    consoleInfoSpy.mockRestore()
-  })
+  let consoleInfoSpy = spyOnConsoleInfo()
 
   it('prints hint about --include-branches when includeBranches is false', () => {
     let skipped = [
@@ -161,5 +152,152 @@ describe('printSkippedWarning', () => {
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('current style'),
     )
+  })
+
+  it('reports skip reasons that have no dedicated group', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'stable' },
+        skipReason: 'unknown' as const,
+        currentVersion: 'stable',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('could not be checked'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@stable'),
+    )
+  })
+
+  it('keeps unrelated skip reasons in their own groups', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'main' },
+        skipReason: 'branch' as const,
+        currentVersion: 'main',
+      },
+      {
+        action: { name: 'actions/cache', version: 'stable' },
+        skipReason: 'unsupported-style' as const,
+        currentVersion: 'stable',
+      },
+      {
+        action: { name: 'actions/setup-node', version: 'latest' },
+        skipReason: 'unknown' as const,
+        currentVersion: 'latest',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action pinned to branches'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action that could not be updated'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action that could not be checked'),
+    )
+  })
+
+  it('prints a dedicated warning for tag family mismatches', () => {
+    let skipped = [
+      {
+        action: {
+          name: 'christopher-buss/bedrock/packages/actions/deploy',
+          version: 'actions-v0.1.1',
+        },
+        skipReason: 'tag-family' as const,
+        currentVersion: 'actions-v0.1.1',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('tag family differs from the latest release'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('check them manually'),
+    )
+  })
+
+  it('prints a dedicated warning for references that cannot be compared', () => {
+    let skipped = [
+      {
+        action: { name: 'owner/repo', version: 'v1.0.0' },
+        skipReason: 'not-comparable' as const,
+        currentVersion: 'v1.0.0',
+      },
+    ]
+
+    printSkippedWarning(skipped, false, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action that cannot be compared'),
+    )
+    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('pinned to branches'),
+    )
+  })
+
+  it('prints a dedicated warning for unresolved reference types', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'main' },
+        skipReason: 'ref-type-unavailable' as const,
+        currentVersion: 'main',
+      },
+    ]
+
+    printSkippedWarning(skipped, false, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '1 action whose reference type could not be resolved',
+      ),
+    )
+    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('pinned to branches'),
+    )
+  })
+
+  it('prints a dedicated warning for failed update checks', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'v4' },
+        skipReason: 'check-failed' as const,
+        currentVersion: 'v4',
+      },
+    ]
+
+    printSkippedWarning(skipped, false, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action whose update check failed'),
+    )
+  })
+
+  it('deduplicates repeated identifiers and shows occurrence count', () => {
+    let entry = {
+      action: { name: 'actions/checkout', version: 'main' },
+      currentVersion: 'main',
+    }
+    let skipped = [entry, entry]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action pinned to branches'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@main (×2)'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
   })
 })

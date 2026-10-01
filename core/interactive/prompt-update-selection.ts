@@ -1,5 +1,3 @@
-import type Enquirer from 'enquirer'
-
 import enquirer from 'enquirer'
 import 'node:worker_threads'
 import path from 'node:path'
@@ -7,7 +5,7 @@ import pc from 'picocolors'
 
 import type { ActionUpdate } from '../../types/action-update'
 
-import { readInlineVersionComment } from '../versions/read-inline-version-comment'
+import { parseVersionComment } from '../versions/parse-version-comment'
 import { formatVersion } from './format-version'
 import { GITHUB_DIRECTORY } from '../constants'
 import { isSha } from '../versions/is-sha'
@@ -277,11 +275,6 @@ interface PromptUpdateSelectionOptions {
   showAge?: boolean
 }
 
-type PromptOptions = Extract<
-  Parameters<Enquirer['prompt']>[0],
-  Record<string, unknown>
->
-
 export async function promptUpdateSelection(
   updates: ActionUpdate[],
   options: PromptUpdateSelectionOptions = {},
@@ -334,33 +327,28 @@ export async function promptUpdateSelection(
    * (e.g. "# v5.0.0"), show that version instead of the SHA and use it for diff
    * coloring in the Target column.
    */
-  let currentComputedByIndex = await Promise.all(
-    outdated.map(async update => {
-      let display = formatVersionOrSha(update.currentVersion)
-      let effectiveForDiff: undefined | string =
-        update.currentVersion ?? undefined
-      let versionForPadding: string | null = null
-      let shortSha: string | null = null
+  let currentComputedByIndex = outdated.map(update => {
+    let display = formatVersionOrSha(update.currentVersion)
+    let effectiveForDiff: undefined | string =
+      update.currentVersion ?? undefined
+    let versionForPadding: string | null = null
+    let shortSha: string | null = null
 
-      if (!update.currentVersion || !isSha(update.currentVersion)) {
-        return { versionForPadding, effectiveForDiff, shortSha, display }
-      }
-
-      let versionFromComment = await readInlineVersionComment(
-        update.action.file,
-        update.action.line,
-      )
-
-      if (versionFromComment) {
-        shortSha = update.currentVersion.slice(0, 7)
-        versionForPadding = formatVersionOrSha(versionFromComment)
-        display = versionForPadding
-        effectiveForDiff = versionFromComment
-      }
-
+    if (!update.currentVersion || !isSha(update.currentVersion)) {
       return { versionForPadding, effectiveForDiff, shortSha, display }
-    }),
-  )
+    }
+
+    let versionFromComment = parseVersionComment(update.action.comment)
+
+    if (versionFromComment) {
+      shortSha = update.currentVersion.slice(0, 7)
+      versionForPadding = formatVersionOrSha(versionFromComment)
+      display = versionForPadding
+      effectiveForDiff = versionFromComment
+    }
+
+    return { versionForPadding, effectiveForDiff, shortSha, display }
+  })
 
   let choices: (ChoiceSeparator | ChoiceItem)[] = []
 
@@ -391,9 +379,11 @@ export async function promptUpdateSelection(
     maxJobLength = Math.max(maxJobLength, jobRaw.length)
     if (update.latestVersion) {
       let targetVersion =
-        update.targetRefStyle === 'tag' && update.targetRef ?
-          update.targetRef
-        : update.latestVersion
+        update[
+          update.targetRefStyle === 'tag' && update.targetRef ?
+            'targetRef'
+          : 'latestVersion'
+        ]
       let formatted = formatVersion(
         targetVersion,
         currentComputedByIndex[index]?.effectiveForDiff ??
@@ -420,7 +410,7 @@ export async function promptUpdateSelection(
   let globalTargetWidth = globalVersionWidth + 1 + 9
   let globalAgeWidth = showAge && hasAnyAge ? 6 : 0
 
-  let sortedFiles = [...groups.keys()].toSorted()
+  let sortedFiles = groups.keys().toArray().toSorted()
 
   for (let [fileIndex, file] of sortedFiles.entries()) {
     let fileGroup = groups.get(file)
@@ -535,7 +525,7 @@ export async function promptUpdateSelection(
       name: `label|${file}`,
       isGroupLabel: true,
       enabled: false,
-    } as unknown as ChoiceItem)
+    })
 
     /**
      * Add a blank separator line between groups for readability.
@@ -564,7 +554,7 @@ export async function promptUpdateSelection(
             (child): child is ChoiceItem => !('role' in child),
           )
           let total = rows.length
-          let selectedCount = rows.filter(row => Boolean(row.enabled)).length
+          let selectedCount = rows.filter(row => row.enabled).length
           let mark = selectedCount === total ? '●' : '○'
 
           return ` ${pc.gray(mark)}`
@@ -614,9 +604,7 @@ export async function promptUpdateSelection(
       choices,
     }
 
-    let { selected } = await enquirer.prompt<PromptResult>(
-      promptOptions as unknown as PromptOptions,
-    )
+    let { selected } = await enquirer.prompt<PromptResult>(promptOptions)
 
     let selectedIndexes = getSelectedIndexes(selected, groups)
     let result = getSelectedUpdates(outdated, selectedIndexes)
@@ -801,7 +789,7 @@ function getResolvedTarget(update: ActionUpdate): string | null {
  * cancellation message.
  */
 function logSelectionCancelled(): void {
-  console.info(`\r\u001B[K${pc.yellow('Selection cancelled')}`)
+  console.info(`\r\u{1B}[K${pc.yellow('Selection cancelled')}`)
 }
 
 function hasResolvedTarget(update: ActionUpdate): boolean {

@@ -2,22 +2,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { GitHubClientContext } from '../../types/github-client-context'
-
+import { createClientContext } from '../helpers/create-client-context'
 import { getLatestRelease } from '../../core/api/get-latest-release'
 
 describe('getLatestRelease', () => {
   beforeEach(() => vi.restoreAllMocks())
-
-  function context(): GitHubClientContext {
-    return {
-      caches: { refType: new Map(), tagInfo: new Map(), tagSha: new Map() },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      rateLimitRemaining: 5000,
-      token: 't',
-    }
-  }
 
   it('returns normalized latest release', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -34,7 +23,7 @@ describe('getLatestRelease', () => {
         { status: 200 },
       ),
     )
-    let release = await getLatestRelease(context(), 'o', 'r')
+    let release = await getLatestRelease(createClientContext(), 'o', 'r')
     expect(release).toMatchObject({
       version: 'v3.0.0',
       sha: 'abc1234',
@@ -46,7 +35,7 @@ describe('getLatestRelease', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('Not Found', { status: 404 }),
     )
-    let release = await getLatestRelease(context(), 'o', 'r')
+    let release = await getLatestRelease(createClientContext(), 'o', 'r')
     expect(release).toBeNull()
   })
 
@@ -65,7 +54,7 @@ describe('getLatestRelease', () => {
         { status: 200 },
       ),
     )
-    let release = await getLatestRelease(context(), 'o', 'r')
+    let release = await getLatestRelease(createClientContext(), 'o', 'r')
     expect(release).toMatchObject({ description: null, name: 'v3.0.0' })
   })
 
@@ -76,30 +65,35 @@ describe('getLatestRelease', () => {
         status: 403,
       }),
     )
-    await expect(getLatestRelease(context(), 'o', 'r')).rejects.toHaveProperty(
-      'name',
-      'GitHubRateLimitError',
-    )
+    await expect(
+      getLatestRelease(createClientContext(), 'o', 'r'),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
   })
 
-  it('leaves sha null when target_commitish is not a SHA', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          published_at: '2024-03-01T00:00:00Z',
-          target_commitish: 'main',
-          tag_name: 'v3.0.0',
-          prerelease: false,
-          html_url: 'u',
-          body: 'Desc',
-          name: 'Rel',
-        }),
-        { status: 200 },
-      ),
-    )
-    let release = await getLatestRelease(context(), 'o', 'r')
-    expect(release?.sha).toBeNull()
-  })
+  it.each([
+    ['a branch name', 'main'],
+    ['a v-prefixed branch name', 'v20240101'],
+  ])(
+    'leaves sha null when target_commitish is %s',
+    async (_description, commitish) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            published_at: '2024-03-01T00:00:00Z',
+            target_commitish: commitish,
+            tag_name: 'v3.0.0',
+            prerelease: false,
+            html_url: 'u',
+            body: 'Desc',
+            name: 'Rel',
+          }),
+          { status: 200 },
+        ),
+      )
+      let release = await getLatestRelease(createClientContext(), 'o', 'r')
+      expect(release?.sha).toBeNull()
+    },
+  )
 
   it('rethrows unexpected errors from makeRequest', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -109,7 +103,9 @@ describe('getLatestRelease', () => {
       }),
     )
 
-    await expect(getLatestRelease(context(), 'o', 'r')).rejects.toHaveProperty(
+    await expect(
+      getLatestRelease(createClientContext(), 'o', 'r'),
+    ).rejects.toHaveProperty(
       'message',
       expect.stringContaining('GitHub API error'),
     )

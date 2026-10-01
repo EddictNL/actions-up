@@ -58,7 +58,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0 # v4.2.0\n      - run: echo "hi"\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -97,7 +101,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      "steps:\n  - uses: 'actions/cache@abc123def4567890abc123def4567890abc123de' # v3.1.2\n",
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -142,7 +150,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'jobs:\r\n  build:\r\n    steps:\r\n      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.0\r\n      # keep me\r\n      - run: echo "done"\r\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain(
@@ -186,7 +198,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: "actions/setup-node@f1f2f3f4f5f6f7f8f9f0a1a2a3a4a5a6a7a8a9b0" # v5.1.0\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -245,7 +261,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee # v4.2.0\n      - uses: "actions/setup-node@ffffffffffffffffffffffffffffffffffffffff" # v5.0.1\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -310,7 +330,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      "# flow-style steps\nsteps:\n  - { 'uses': 'actions/checkout@1111111111111111111111111111111111111111' } # v6.0.1\n  - { 'uses': 'actions/setup-node@2222222222222222222222222222222222222222' } # v5.2.0\n",
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
 
@@ -476,7 +500,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'name: deploy\non:\n  push:\n\njobs:\n  build:\n    name: build\n    runs-on: ubuntu-latest\n    steps:\n      - name: checkout\n        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0\n\n  publish_typescript_sdk:\n    runs-on: ubuntu-latest\n    name: publish typescript sdk\n    steps:\n      - id: checkout\n        name: Checkout\n        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain(`uses: actions/checkout@${sha} # v5.0.0`)
@@ -513,7 +541,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'uses: actions/checkout@v3\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toBe(original)
@@ -549,7 +581,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5v3\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain(
@@ -589,7 +625,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/cache@v3\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toBe(original)
@@ -722,7 +762,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/checkout@v5.0.0 # keep this\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain('- uses: actions/checkout@v5.0.0 # keep this')
@@ -759,11 +803,61 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/cache@v3.2.0 \n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain('- uses: actions/cache@v3.2.0')
     expect(content).not.toContain('# v3.1.2')
+  })
+
+  it('does not duplicate suffix for preserve-style overlapping tag refs', async () => {
+    let filePath = '/repo/.github/workflows/preserve-overlap.yml'
+    let original = [
+      'steps:',
+      '  - uses: actions/checkout@v6.0.2',
+      '  - uses: actions/checkout@v6',
+      '',
+    ].join('\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v6',
+        },
+        latestVersion: 'v6.0.2',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v6',
+        targetRef: 'v6.0.2',
+        isBreaking: false,
+        publishedAt: null,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/checkout@v6.0.2\n  - uses: actions/checkout@v6.0.2\n',
+      'utf8',
+    )
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toContain('- uses: actions/checkout@v6.0.2')
+    expect(content.match(/actions\/checkout@v6\.0\.2/gu)).toHaveLength(2)
+    expect(content).not.toContain('v6.0.2.0.2')
   })
 
   it('logs error when target ref contains a newline', async () => {
@@ -799,5 +893,349 @@ describe('applyUpdates', () => {
 
     expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
     expect(consoleSpy).toHaveBeenCalledWith('Invalid target ref: v3.2.0\n')
+  })
+
+  it('leaves skipped updates untouched even when a latest SHA is known', async () => {
+    let filePath = '/repo/.github/workflows/skipped.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+        skipReason: 'unsupported-style',
+        latestVersion: 'v4.2.0',
+        currentRefType: 'tag',
+        currentVersion: 'v3',
+        status: 'skipped',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: false,
+        targetRef: null,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      original,
+      'utf8',
+    )
+  })
+
+  it('rewrites only the occurrence the update was scanned from', async () => {
+    let filePath = '/repo/.github/workflows/duplicate.yml'
+    let original = [
+      'jobs:',
+      '  build:',
+      '    steps:',
+      '      - uses: actions/checkout@v3',
+      '      - uses: actions/checkout@v3',
+      '',
+    ].join('\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+          line: 5,
+        },
+        latestVersion: 'v4.2.0',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v3',
+        targetRef: 'v4.2.0',
+        isBreaking: false,
+        publishedAt: null,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content.split('\n', 4)[3]).toBe('      - uses: actions/checkout@v3')
+    expect(content.split('\n', 5)[4]).toBe(
+      '      - uses: actions/checkout@v4.2.0',
+    )
+  })
+
+  it('leaves the file untouched when the recorded line does not exist', async () => {
+    let filePath = '/repo/.github/workflows/stale-line.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+          line: 99,
+        },
+        latestVersion: 'v4.2.0',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v3',
+        targetRef: 'v4.2.0',
+        isBreaking: false,
+        publishedAt: null,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      original,
+      'utf8',
+    )
+  })
+
+  describe('runs-on', () => {
+    let filePath = '/repo/.github/workflows/ci.yml'
+
+    function createRunnerUpdate(
+      overrides: Partial<ActionUpdate> = {},
+    ): ActionUpdate {
+      return {
+        action: {
+          version: 'ubuntu-22.04',
+          name: 'runner/ubuntu',
+          type: 'runner',
+          file: filePath,
+          job: 'build',
+          line: 3,
+        },
+        currentVersion: 'ubuntu-22.04',
+        latestVersion: 'ubuntu-24.04',
+        targetRef: 'ubuntu-24.04',
+        targetRefStyle: 'tag',
+        publishedAt: null,
+        isBreaking: true,
+        latestSha: null,
+        hasUpdate: true,
+        status: 'ok',
+        ...overrides,
+      }
+    }
+
+    async function applyToLine(
+      line: string,
+      overrides: Partial<ActionUpdate> = {},
+    ): Promise<string> {
+      let original = ['jobs:', '  build:', line, '    steps: []', ''].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+      await applyUpdates([createRunnerUpdate(overrides)])
+      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
+      assertString(written)
+      return written.split('\n', 3)[2]!
+    }
+
+    it('replaces an unquoted label', async () => {
+      await expect(applyToLine('    runs-on: ubuntu-22.04')).resolves.toBe(
+        '    runs-on: ubuntu-24.04',
+      )
+    })
+
+    it('preserves single quotes around the label', async () => {
+      await expect(applyToLine("    runs-on: 'ubuntu-22.04'")).resolves.toBe(
+        "    runs-on: 'ubuntu-24.04'",
+      )
+    })
+
+    it('preserves double quotes around the label', async () => {
+      await expect(applyToLine('    runs-on: "ubuntu-22.04"')).resolves.toBe(
+        '    runs-on: "ubuntu-24.04"',
+      )
+    })
+
+    it('preserves a quoted runs-on key', async () => {
+      await expect(applyToLine('    "runs-on": ubuntu-22.04')).resolves.toBe(
+        '    "runs-on": ubuntu-24.04',
+      )
+    })
+
+    it('keeps a trailing inline comment', async () => {
+      await expect(
+        applyToLine('    runs-on: ubuntu-22.04 # pinned on purpose'),
+      ).resolves.toBe('    runs-on: ubuntu-24.04 # pinned on purpose')
+    })
+
+    it('never appends a version comment of its own', async () => {
+      await expect(
+        applyToLine('    runs-on: ubuntu-22.04'),
+      ).resolves.not.toContain('#')
+    })
+
+    it.each([
+      ['without a comment', '    runs-on: ubuntu-22.04\r'],
+      ['with a comment', '    runs-on: ubuntu-22.04 # pinned\r'],
+      ['with a quoted label', '    runs-on: "ubuntu-22.04"  # pinned\r'],
+    ])('rewrites a CRLF line %s', async (_description, line) => {
+      let original = ['jobs:\r', '  build:\r', line, '\r', ''].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate()])
+
+      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
+      assertString(written)
+      expect(written.split('\n', 3)[2]).toBe(
+        line.replace('ubuntu-22.04', 'ubuntu-24.04'),
+      )
+      expect(written).not.toBe(original)
+    })
+
+    it('leaves the line alone when the label does not match', async () => {
+      await expect(applyToLine('    runs-on: ubuntu-24.04')).resolves.toBe(
+        '    runs-on: ubuntu-24.04',
+      )
+    })
+
+    it('leaves a flow mapping alone', async () => {
+      await expect(applyToLine('    { runs-on: ubuntu-22.04 }')).resolves.toBe(
+        '    { runs-on: ubuntu-22.04 }',
+      )
+    })
+
+    it('rewrites only the scanned line when two jobs share a label', async () => {
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '  test:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate()])
+
+      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
+      assertString(written)
+      expect(written.split('\n', 3)[2]).toBe('    runs-on: ubuntu-24.04')
+      expect(written.split('\n', 5)[4]).toBe('    runs-on: ubuntu-22.04')
+    })
+
+    it.each([
+      ['no target ref', { targetRef: null }],
+      ['no current version', { currentVersion: null }],
+      [
+        'no line number',
+        {
+          action: {
+            type: 'runner' as const,
+            name: 'runner/ubuntu',
+            file: filePath,
+          },
+        },
+      ],
+      [
+        'a non-positive line number',
+        {
+          action: {
+            type: 'runner' as const,
+            name: 'runner/ubuntu',
+            file: filePath,
+            line: 0,
+          },
+        },
+      ],
+    ])('writes the file unchanged with %s', async (_description, overrides) => {
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate(overrides)])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+    })
+
+    it('writes the file unchanged when the scanned line is gone', async () => {
+      let original = ['jobs:', '  build:', ''].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([
+        createRunnerUpdate({
+          action: {
+            version: 'ubuntu-22.04',
+            name: 'runner/ubuntu',
+            type: 'runner',
+            file: filePath,
+            line: 99,
+          },
+        }),
+      ])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+    })
+
+    it('refuses to write a label that is not a runner label', async () => {
+      let errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([
+        createRunnerUpdate({ targetRef: 'ubuntu-24.04\nmalicious: true' }),
+      ])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid runner label'),
+      )
+      errorSpy.mockRestore()
+    })
+
+    it('skips a runner entry marked as skipped', async () => {
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate({ status: 'skipped' })])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+    })
   })
 })

@@ -1,11 +1,13 @@
-import type { Stats } from 'node:fs'
+import type { PathLike, Stats } from 'node:fs'
 
 import { beforeEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { parseDocument } from 'yaml'
 
+import type { ScannedDocument } from './helpers/create-mock-document'
 import type { GitHubAction } from '../types/github-action'
 
+import { createMockDocument } from './helpers/create-mock-document'
 import { scanGitHubActions } from '../core/scan-github-actions'
 
 vi.mock(import('node:fs/promises'), () => ({
@@ -18,12 +20,18 @@ vi.mock(import('yaml'), () => ({
   parseDocument: vi.fn(),
 }))
 
-interface MockNode {
-  value?: { toJSON?(): unknown; items: MockNode[] } | unknown
-  toJSON?(): unknown
-  items?: MockNode[]
-  key?: MockKey
-}
+/**
+ * `readdir` narrowed to the overload the scanner calls, which lists entry
+ * names.
+ */
+let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
+
+/**
+ * `parseDocument` narrowed to what the scanners read, so tests can supply
+ * hand-built ASTs, including malformed ones.
+ */
+let mockedParseDocument =
+  vi.mocked<(source: string) => ScannedDocument>(parseDocument)
 
 interface WorkflowModule {
   scanWorkflowFile(filePath: string): Promise<GitHubAction[]>
@@ -31,75 +39,6 @@ interface WorkflowModule {
 
 interface ActionModule {
   scanActionFile(filePath: string): Promise<GitHubAction[]>
-}
-
-interface MockDocument {
-  contents: { items: MockNode[] }
-  toJSON(): unknown
-}
-
-interface MockKey {
-  range: [number, number, number]
-  value: string
-}
-
-function createMockDocument(data: unknown): MockDocument {
-  function createMockNode(
-    key: string,
-    value: unknown,
-    range?: [number, number, number],
-  ): MockNode {
-    if (Array.isArray(value)) {
-      let array = value as unknown[]
-      return {
-        value: {
-          items: array.map((item: unknown, index: number) => {
-            if (typeof item === 'object' && item !== null) {
-              return {
-                items: Object.entries(item as Record<string, unknown>).map(
-                  ([entryKey, entryValue]) =>
-                    createMockNode(entryKey, entryValue, [
-                      index * 20,
-                      index * 20 + 1,
-                      index * 20 + 1,
-                    ]),
-                ),
-                toJSON: (): unknown => item,
-              }
-            }
-            return { toJSON: (): unknown => item }
-          }),
-        },
-        key: { range: range ?? [0, 1, 1], value: key },
-      }
-    }
-    if (typeof value === 'object' && value !== null) {
-      return {
-        value: {
-          items: Object.entries(value as Record<string, unknown>).map(
-            ([entryKey, entryValue]) => createMockNode(entryKey, entryValue),
-          ),
-          toJSON: () => value,
-        },
-        key: { range: range ?? [0, 1, 1], value: key },
-      }
-    }
-    return {
-      key: { range: range ?? [0, 1, 1], value: key },
-      value,
-    }
-  }
-
-  return {
-    contents: {
-      items: Object.entries(
-        typeof data === 'object' && data !== null ?
-          (data as Record<string, unknown>)
-        : {},
-      ).map(([entryKey, entryValue]) => createMockNode(entryKey, entryValue)),
-    },
-    toJSON: () => data,
-  }
 }
 
 let workflowModule: WorkflowModule | undefined
@@ -154,55 +93,38 @@ describe('scanGitHubActions', () => {
               pathValue.includes('workflows') || pathValue.includes('actions')
             )
           },
-        } as Stats) as ReturnType<typeof stat>,
+        } as Stats),
     )
 
-    vi.mocked(readdir).mockImplementation(
-      (path: Parameters<typeof readdir>[0]): ReturnType<typeof readdir> => {
-        let pathValue = String(path)
-        if (pathValue.includes('workflows')) {
-          return Promise.resolve([
-            'ci.yml',
-            'release.yml',
-          ]) as unknown as ReturnType<typeof readdir>
-        }
-        return Promise.resolve(['build']) as unknown as ReturnType<
-          typeof readdir
-        >
-      },
-    )
+    mockedReaddir.mockImplementation((path: PathLike): Promise<string[]> => {
+      let pathValue = String(path)
+      if (pathValue.includes('workflows')) {
+        return Promise.resolve(['ci.yml', 'release.yml'])
+      }
+      return Promise.resolve(['build'])
+    })
 
     vi.mocked(readFile).mockImplementation(
       (path: Parameters<typeof readFile>[0]): ReturnType<typeof readFile> => {
         let pathValue = JSON.stringify(path)
         if (pathValue.includes('workflows')) {
-          return Promise.resolve('workflow content') as ReturnType<
-            typeof readFile
-          >
+          return Promise.resolve('workflow content')
         }
         if (pathValue.includes('action.yml')) {
-          return Promise.resolve('action content') as ReturnType<
-            typeof readFile
-          >
+          return Promise.resolve('action content')
         }
-        return Promise.resolve('') as ReturnType<typeof readFile>
+        return Promise.resolve('')
       },
     )
 
-    vi.mocked(parseDocument).mockImplementation((content: string) => {
+    mockedParseDocument.mockImplementation((content: string) => {
       if (content === 'workflow content') {
-        return createMockDocument(mockWorkflow) as unknown as ReturnType<
-          typeof parseDocument
-        >
+        return createMockDocument(mockWorkflow)
       }
       if (content === 'action content') {
-        return createMockDocument(mockAction) as unknown as ReturnType<
-          typeof parseDocument
-        >
+        return createMockDocument(mockAction)
       }
-      return createMockDocument(null) as unknown as ReturnType<
-        typeof parseDocument
-      >
+      return createMockDocument(null)
     })
 
     let result = await scanGitHubActions('.')
@@ -231,14 +153,12 @@ describe('scanGitHubActions', () => {
       return Promise.reject(new Error('ENOENT'))
     })
 
-    vi.mocked(readdir).mockImplementation(pathArgument => {
+    mockedReaddir.mockImplementation(pathArgument => {
       let pathValue = String(pathArgument)
       if (pathValue.endsWith('.github/workflows')) {
-        return Promise.resolve(['..evil.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['..evil.yml'])
       }
-      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+      return Promise.resolve([])
     })
 
     let result = await scanGitHubActions('.')
@@ -275,32 +195,28 @@ describe('scanGitHubActions', () => {
       } as Stats)
     })
 
-    vi.mocked(readdir).mockImplementation(path => {
+    mockedReaddir.mockImplementation(path => {
       if (
         typeof path === 'string' &&
         path.includes('actions') &&
         !path.includes('test')
       ) {
-        return Promise.resolve(['test']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['test'])
       }
       if (typeof path === 'string' && path.includes('test')) {
-        return Promise.resolve(['action.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['action.yml'])
       }
-      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+      return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/cache@v3' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -325,20 +241,17 @@ describe('scanGitHubActions', () => {
       } as Stats)
     })
 
-    vi.mocked(readdir).mockImplementation(
-      () =>
-        Promise.resolve(['test.yml']) as unknown as ReturnType<typeof readdir>,
-    )
+    mockedReaddir.mockResolvedValue(['test.yml'])
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           test: {
             steps: [{ uses: 'actions/checkout@v4' }],
           },
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -353,7 +266,7 @@ describe('scanGitHubActions', () => {
     delete process.env['GITHUB_REPOSITORY']
 
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => false } as Stats)
-    vi.mocked(readdir).mockResolvedValue([])
+    mockedReaddir.mockResolvedValue([])
     vi.mocked(readFile).mockRejectedValue(new Error('no config'))
 
     let result = await scanGitHubActions('.')
@@ -365,7 +278,7 @@ describe('scanGitHubActions', () => {
   it('handles empty workflows directory', async () => {
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as Stats)
 
-    vi.mocked(readdir).mockResolvedValue([])
+    mockedReaddir.mockResolvedValue([])
 
     let result = await scanGitHubActions('.')
 
@@ -379,27 +292,23 @@ describe('scanGitHubActions', () => {
       isDirectory: () => true,
     } as Stats)
 
-    vi.mocked(readdir).mockImplementation(
-      (path: Parameters<typeof readdir>[0]): ReturnType<typeof readdir> => {
-        let pathValue = String(path)
-        if (pathValue.includes('workflows')) {
-          return Promise.resolve(['empty.yml']) as unknown as ReturnType<
-            typeof readdir
-          >
-        }
-        return Promise.resolve([]) as ReturnType<typeof readdir>
-      },
-    )
+    mockedReaddir.mockImplementation((path: PathLike): Promise<string[]> => {
+      let pathValue = String(path)
+      if (pathValue.includes('workflows')) {
+        return Promise.resolve(['empty.yml'])
+      }
+      return Promise.resolve([])
+    })
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           build: {
             steps: [{ run: 'echo "Hello"' }],
           },
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -419,29 +328,23 @@ describe('scanGitHubActions', () => {
       } as Stats),
     )
 
-    vi.mocked(readdir).mockImplementation(
-      (path: Parameters<typeof readdir>[0]): ReturnType<typeof readdir> => {
-        let pathValue = String(path)
-        if (pathValue.includes('workflows')) {
-          return Promise.resolve([
-            'ci.yml',
-            'readme.md',
-            'script.sh',
-          ]) as unknown as ReturnType<typeof readdir>
-        }
-        return Promise.resolve([]) as ReturnType<typeof readdir>
-      },
-    )
+    mockedReaddir.mockImplementation((path: PathLike): Promise<string[]> => {
+      let pathValue = String(path)
+      if (pathValue.includes('workflows')) {
+        return Promise.resolve(['ci.yml', 'readme.md', 'script.sh'])
+      }
+      return Promise.resolve([])
+    })
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           build: {
             steps: [{ uses: 'actions/checkout@v4' }],
           },
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -453,18 +356,13 @@ describe('scanGitHubActions', () => {
   it('handles workflow scan errors gracefully', async () => {
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as Stats)
 
-    vi.mocked(readdir).mockImplementation(
-      (path: Parameters<typeof readdir>[0]): ReturnType<typeof readdir> => {
-        let pathValue = String(path)
-        if (pathValue.includes('workflows')) {
-          return Promise.resolve([
-            'valid.yml',
-            'invalid.yml',
-          ]) as unknown as ReturnType<typeof readdir>
-        }
-        return Promise.resolve([]) as ReturnType<typeof readdir>
-      },
-    )
+    mockedReaddir.mockImplementation((path: PathLike): Promise<string[]> => {
+      let pathValue = String(path)
+      if (pathValue.includes('workflows')) {
+        return Promise.resolve(['valid.yml', 'invalid.yml'])
+      }
+      return Promise.resolve([])
+    })
 
     vi.mocked(readFile).mockImplementation(path => {
       if (typeof path === 'string' && path.includes('invalid')) {
@@ -473,14 +371,14 @@ describe('scanGitHubActions', () => {
       return Promise.resolve('workflow content')
     })
 
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           test: {
             steps: [{ uses: 'actions/setup-go@v4' }],
           },
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -500,18 +398,18 @@ describe('scanGitHubActions', () => {
 
     vi.mocked(readFile).mockImplementation((path: unknown) => {
       if (typeof path === 'string' && path.endsWith('action.yml')) {
-        return Promise.resolve('action content') as ReturnType<typeof readFile>
+        return Promise.resolve('action content')
       }
       return Promise.reject(new Error('ENOENT'))
     })
 
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/setup-node@v5' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -533,17 +431,17 @@ describe('scanGitHubActions', () => {
 
     vi.mocked(readFile).mockImplementation((path: unknown) => {
       if (typeof path === 'string' && path.endsWith('action.yml')) {
-        return Promise.resolve('action content') as ReturnType<typeof readFile>
+        return Promise.resolve('action content')
       }
       return Promise.reject(new Error('ENOENT'))
     })
 
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -568,18 +466,18 @@ describe('scanGitHubActions', () => {
 
     vi.mocked(readFile).mockImplementation((path: unknown) => {
       if (typeof path === 'string' && path.endsWith('action.yaml')) {
-        return Promise.resolve('action content') as ReturnType<typeof readFile>
+        return Promise.resolve('action content')
       }
       return Promise.reject(new Error('ENOENT'))
     })
 
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/setup-node@v5' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -650,20 +548,16 @@ describe('scanGitHubActions', () => {
             let pathValue = String(path)
             return pathValue.includes('.github')
           },
-        } as Stats) as ReturnType<typeof stat>,
+        } as Stats),
     )
 
-    vi.mocked(readdir).mockImplementation(
-      (path: Parameters<typeof readdir>[0]): ReturnType<typeof readdir> => {
-        let pathValue = String(path)
-        if (pathValue.includes('actions') && !pathValue.includes('setup')) {
-          return Promise.resolve(['setup']) as unknown as ReturnType<
-            typeof readdir
-          >
-        }
-        return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
-      },
-    )
+    mockedReaddir.mockImplementation((path: PathLike): Promise<string[]> => {
+      let pathValue = String(path)
+      if (pathValue.includes('actions') && !pathValue.includes('setup')) {
+        return Promise.resolve(['setup'])
+      }
+      return Promise.resolve([])
+    })
 
     vi.mocked(readFile).mockImplementation(
       (path: Parameters<typeof readFile>[0]): ReturnType<typeof readFile> => {
@@ -671,17 +565,17 @@ describe('scanGitHubActions', () => {
         if (pathValue.includes('action.yml')) {
           return Promise.reject(new Error('File not found'))
         }
-        return Promise.resolve('action content') as ReturnType<typeof readFile>
+        return Promise.resolve('action content')
       },
     )
 
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/setup-node@v5' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -810,14 +704,12 @@ describe('scanGitHubActions', () => {
       return Promise.reject(new Error('ENOENT'))
     })
 
-    vi.mocked(readdir).mockImplementation(pathArgument => {
+    mockedReaddir.mockImplementation(pathArgument => {
       let value = String(pathArgument)
       if (value.endsWith('.github/workflows')) {
-        return Promise.resolve(['ci.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['ci.yml'])
       }
-      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+      return Promise.resolve([])
     })
 
     let previousRepo = process.env['GITHUB_REPOSITORY']
@@ -841,16 +733,11 @@ describe('scanGitHubActions', () => {
         }
         return Promise.resolve({
           isDirectory: () => pathValue.includes('actions'),
-        } as Stats) as ReturnType<typeof stat>
+        } as Stats)
       },
     )
 
-    vi.mocked(readdir).mockImplementation(
-      (): ReturnType<typeof readdir> =>
-        Promise.resolve(['valid', 'invalid']) as unknown as ReturnType<
-          typeof readdir
-        >,
-    )
+    mockedReaddir.mockResolvedValue(['valid', 'invalid'])
 
     vi.mocked(readFile).mockImplementation(
       (path: Parameters<typeof readFile>[0]): ReturnType<typeof readFile> => {
@@ -858,17 +745,17 @@ describe('scanGitHubActions', () => {
         if (pathValue.includes('invalid')) {
           return Promise.reject(new Error('Read error'))
         }
-        return Promise.resolve('action content') as ReturnType<typeof readFile>
+        return Promise.resolve('action content')
       },
     )
 
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/cache@v3' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -896,10 +783,7 @@ describe('scanGitHubActions', () => {
       },
     )
 
-    vi.mocked(readdir).mockImplementation(
-      (): ReturnType<typeof readdir> =>
-        Promise.resolve(['bad']) as unknown as ReturnType<typeof readdir>,
-    )
+    mockedReaddir.mockResolvedValue(['bad'])
 
     let result = await scanGitHubActions('.')
     expect(result.compositeActions.size).toBe(0)
@@ -920,14 +804,12 @@ describe('scanGitHubActions', () => {
       return Promise.resolve({ isDirectory: () => false } as Stats)
     })
 
-    vi.mocked(readdir).mockImplementation(pathArgument => {
+    mockedReaddir.mockImplementation(pathArgument => {
       let value = String(pathArgument)
       if (value.endsWith('.github/actions')) {
-        return Promise.resolve(['..bad']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['..bad'])
       }
-      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+      return Promise.resolve([])
     })
 
     let result = await scanGitHubActions('.')
@@ -948,7 +830,7 @@ describe('scanGitHubActions', () => {
         return Promise.resolve({
           isDirectory: () => false,
           isFile: () => true,
-        } as unknown as Stats)
+        } as Stats)
       }
       if (currentPath.endsWith('.github/actions')) {
         return Promise.resolve({ isDirectory: () => false } as Stats)
@@ -956,32 +838,26 @@ describe('scanGitHubActions', () => {
       return Promise.reject(new Error('ENOENT'))
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let currentPath = String(path)
       if (currentPath.endsWith('.github/workflows')) {
-        return Promise.resolve(['coverage.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['coverage.yml'])
       }
-      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+      return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockImplementation((path: unknown) => {
       let currentPath = String(path)
       if (currentPath.endsWith('coverage.yml')) {
-        return Promise.resolve('workflow content') as unknown as ReturnType<
-          typeof readFile
-        >
+        return Promise.resolve('workflow content')
       }
       if (currentPath.endsWith('setup-js/action.yml')) {
-        return Promise.resolve('action content') as unknown as ReturnType<
-          typeof readFile
-        >
+        return Promise.resolve('action content')
       }
       return Promise.reject(new Error('not used'))
     })
 
-    vi.mocked(parseDocument).mockImplementation((content: string) => {
+    mockedParseDocument.mockImplementation((content: string) => {
       if (content === 'workflow content') {
         return createMockDocument({
           jobs: {
@@ -989,7 +865,7 @@ describe('scanGitHubActions', () => {
               steps: [{ uses: 'my/repo/setup-js@v1' }],
             },
           },
-        }) as unknown as ReturnType<typeof parseDocument>
+        })
       }
       if (content === 'action content') {
         return createMockDocument({
@@ -997,11 +873,9 @@ describe('scanGitHubActions', () => {
             steps: [{ uses: 'actions/setup-node@v5' }],
             using: 'composite',
           },
-        }) as unknown as ReturnType<typeof parseDocument>
+        })
       }
-      return createMockDocument(null) as unknown as ReturnType<
-        typeof parseDocument
-      >
+      return createMockDocument(null)
     })
 
     let result = await scanGitHubActions('.')
@@ -1028,7 +902,7 @@ describe('scanGitHubActions', () => {
           '[remote "origin"]\n' +
             '    url = https://github.com/acme/demo.git\n' +
             '    fetch = +refs/heads/*:refs/remotes/origin/*\n',
-        ) as unknown as ReturnType<typeof readFile>
+        )
       }
       return Promise.reject(new Error('not used'))
     })
@@ -1051,7 +925,7 @@ describe('scanGitHubActions', () => {
           '[remote "upstream"]\n' +
             '    url = git@github.com:acme/up.git\n' +
             '    fetch = +refs/heads/*:refs/remotes/upstream/*\n',
-        ) as unknown as ReturnType<typeof readFile>
+        )
       }
       return Promise.reject(new Error('not used'))
     })
@@ -1066,7 +940,7 @@ describe('scanGitHubActions', () => {
     process.env['ACTIONS_UP_TEST_THROW'] = '1'
 
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => false } as Stats)
-    vi.mocked(readdir).mockResolvedValue([])
+    mockedReaddir.mockResolvedValue([])
 
     let result = await scanGitHubActions('.')
     expect(result.actions).toEqual([])
@@ -1081,27 +955,23 @@ describe('scanGitHubActions', () => {
   ])('scans from %s (%s)', async rootPath => {
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as Stats)
 
-    vi.mocked(readdir).mockImplementation(
-      (path: Parameters<typeof readdir>[0]): ReturnType<typeof readdir> => {
-        let pathValue = String(path)
-        if (pathValue.includes('workflows')) {
-          return Promise.resolve(['test.yml']) as unknown as ReturnType<
-            typeof readdir
-          >
-        }
-        return Promise.resolve([]) as ReturnType<typeof readdir>
-      },
-    )
+    mockedReaddir.mockImplementation((path: PathLike): Promise<string[]> => {
+      let pathValue = String(path)
+      if (pathValue.includes('workflows')) {
+        return Promise.resolve(['test.yml'])
+      }
+      return Promise.resolve([])
+    })
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           test: {
             steps: [{ uses: 'actions/checkout@v4' }],
           },
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions(rootPath)
@@ -1113,21 +983,16 @@ describe('scanGitHubActions', () => {
   it('deduplicates actions across workflows', async () => {
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as Stats)
 
-    vi.mocked(readdir).mockImplementation(
-      (path: Parameters<typeof readdir>[0]): ReturnType<typeof readdir> => {
-        let pathValue = String(path)
-        if (pathValue.includes('workflows')) {
-          return Promise.resolve([
-            'ci.yml',
-            'test.yml',
-          ]) as unknown as ReturnType<typeof readdir>
-        }
-        return Promise.resolve([]) as ReturnType<typeof readdir>
-      },
-    )
+    mockedReaddir.mockImplementation((path: PathLike): Promise<string[]> => {
+      let pathValue = String(path)
+      if (pathValue.includes('workflows')) {
+        return Promise.resolve(['ci.yml', 'test.yml'])
+      }
+      return Promise.resolve([])
+    })
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           build: {
@@ -1137,7 +1002,7 @@ describe('scanGitHubActions', () => {
             ],
           },
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.')
@@ -1158,7 +1023,7 @@ describe('scanGitHubActions', () => {
       return Promise.resolve({ isDirectory: () => true } as Stats)
     })
 
-    vi.mocked(readdir).mockResolvedValue([])
+    mockedReaddir.mockResolvedValue([])
 
     let result = await scanGitHubActions('.')
     expect(result.workflows.size).toBe(0)
@@ -1176,13 +1041,11 @@ describe('scanGitHubActions', () => {
       return Promise.resolve({ isDirectory: () => false } as Stats)
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       if (typeof path === 'string' && path.endsWith('workflows')) {
-        return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+        return Promise.resolve([])
       }
-      return Promise.resolve(['README.md']) as unknown as ReturnType<
-        typeof readdir
-      >
+      return Promise.resolve(['README.md'])
     })
 
     let result = await scanGitHubActions('.')
@@ -1198,7 +1061,7 @@ describe('scanGitHubActions', () => {
       return Promise.resolve({ isDirectory: () => false } as Stats)
     })
 
-    vi.mocked(readdir).mockResolvedValue([])
+    mockedReaddir.mockResolvedValue([])
 
     let result = await scanGitHubActions('.')
     expect(result.compositeActions.size).toBe(0)
@@ -1209,29 +1072,25 @@ describe('scanGitHubActions', () => {
       isDirectory: () => true,
     } as Stats)
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       if (typeof path === 'string' && path.includes('workflows')) {
-        return Promise.resolve(['ci.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['ci.yml'])
       }
       if (typeof path === 'string' && path.includes('actions')) {
-        return Promise.resolve(['build']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['build'])
       }
-      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+      return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/setup-node@v5' }],
           using: 'composite',
         },
         jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanGitHubActions('.', '.gitea')
@@ -1255,37 +1114,31 @@ describe('scanGitHubActions', () => {
         return Promise.resolve({
           isDirectory: () => false,
           isFile: () => true,
-        } as unknown as Stats)
+        } as Stats)
       }
       return Promise.reject(new Error('ENOENT'))
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let currentPath = String(path)
       if (currentPath.endsWith('.github/workflows')) {
-        return Promise.resolve(['test.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['test.yml'])
       }
-      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+      return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockImplementation((path: unknown) => {
       let currentPath = String(path)
       if (currentPath.endsWith('test.yml')) {
-        return Promise.resolve('workflow') as unknown as ReturnType<
-          typeof readFile
-        >
+        return Promise.resolve('workflow')
       }
       if (currentPath.endsWith('empty-action/action.yml')) {
-        return Promise.resolve('action') as unknown as ReturnType<
-          typeof readFile
-        >
+        return Promise.resolve('action')
       }
       return Promise.reject(new Error('not found'))
     })
 
-    vi.mocked(parseDocument).mockImplementation((content: string) => {
+    mockedParseDocument.mockImplementation((content: string) => {
       if (content === 'workflow') {
         return createMockDocument({
           jobs: {
@@ -1293,7 +1146,7 @@ describe('scanGitHubActions', () => {
               steps: [{ uses: 'test/repo/empty-action@v1' }],
             },
           },
-        }) as unknown as ReturnType<typeof parseDocument>
+        })
       }
       if (content === 'action') {
         return createMockDocument({
@@ -1301,11 +1154,9 @@ describe('scanGitHubActions', () => {
             using: 'composite',
             steps: [],
           },
-        }) as unknown as ReturnType<typeof parseDocument>
+        })
       }
-      return createMockDocument({}) as unknown as ReturnType<
-        typeof parseDocument
-      >
+      return createMockDocument({})
     })
 
     let result = await scanGitHubActions('.')
@@ -1327,7 +1178,7 @@ describe('scanGitHubActions', () => {
           '[remote "origin"]\n' +
             '    url = invalid-url-format\n' +
             '    fetch = +refs/heads/*:refs/remotes/origin/*\n',
-        ) as unknown as ReturnType<typeof readFile>
+        )
       }
       return Promise.reject(new Error('not used'))
     })

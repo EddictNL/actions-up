@@ -10,19 +10,26 @@ import type { UpdateMode } from '../types/update-mode'
  * High-level status of a JSON report.
  */
 export type JsonReportStatus =
-  | 'updates-available'
-  | 'no-actions-found'
-  | 'nothing-to-check'
-  | 'up-to-date'
+  'updates-available' | 'no-actions-found' | 'nothing-to-check' | 'up-to-date'
 
 /**
  * Options used to build a JSON report from the current CLI state.
  */
 interface BuildJsonReportOptions {
   /**
+   * Regex patterns supplied through `--min-age-exclude`.
+   */
+  minAgeExcludePatterns: string[]
+
+  /**
    * Updates excluded by the selected update mode.
    */
   blockedByMode: ActionUpdate[]
+
+  /**
+   * Updates held back by the release age cool-down.
+   */
+  blockedByAge: ActionUpdate[]
 
   /**
    * Number of actions that were actually checked after excludes.
@@ -63,6 +70,11 @@ interface BuildJsonReportOptions {
    * Directories resolved for scanning.
    */
   directories: string[]
+
+  /**
+   * Whether tags were inspected alongside releases.
+   */
+  preferTags: boolean
 
   /**
    * Whether recursive scanning mode is enabled.
@@ -185,6 +197,16 @@ interface JsonReportSummary {
   totalBlockedByMode: number
 
   /**
+   * Number of actionable runner label updates in the report.
+   */
+  totalRunnerUpdates: number
+
+  /**
+   * Number of updates held back by `--min-age`.
+   */
+  totalBlockedByAge: number
+
+  /**
    * Number of workflows discovered during scanning.
    */
   totalWorkflows: number
@@ -195,20 +217,83 @@ interface JsonReportSummary {
   totalActions: number
 
   /**
+   * Total number of `runs-on` labels found during scanning.
+   */
+  totalRunners: number
+
+  /**
    * Number of skipped entries in the report.
    */
   totalSkipped: number
 
   /**
-   * Number of actionable updates in the report.
+   * Number of actionable updates in the report, runners excluded.
    */
   totalUpdates: number
+}
+
+/**
+ * Top-level machine-readable report emitted by `--json`.
+ */
+interface JsonReport {
+  /**
+   * Entries filtered out by the selected update mode.
+   */
+  blockedByMode: JsonReportUpdate[]
+
+  /**
+   * Entries held back by the release age cool-down.
+   */
+  blockedByAge: JsonReportUpdate[]
+
+  /**
+   * Entries skipped during update checks.
+   */
+  skipped: JsonReportUpdate[]
+
+  /**
+   * Actionable updates after filtering.
+   */
+  updates: JsonReportUpdate[]
+
+  /**
+   * Actionable updates for the scanned `runs-on` labels.
+   *
+   * Kept apart from `updates` so that consumers gating on `totalUpdates` keep
+   * measuring action updates alone.
+   */
+  runners: JsonReportUpdate[]
+
+  /**
+   * Effective options that shaped the report.
+   */
+  options: JsonReportOptions
+
+  /**
+   * Aggregate counts for the current run.
+   */
+  summary: JsonReportSummary
+
+  /**
+   * Overall outcome for the current run.
+   */
+  status: JsonReportStatus
+
+  /**
+   * Version of the JSON payload schema.
+   */
+  schemaVersion: 1
 }
 
 /**
  * Effective CLI options serialized into the report.
  */
 interface JsonReportOptions {
+  /**
+   * Regex patterns supplied through `--min-age-exclude`.
+   */
+  minAgeExcludePatterns: string[]
+
   /**
    * Regex patterns supplied through `--exclude`.
    */
@@ -223,6 +308,11 @@ interface JsonReportOptions {
    * Resolved scan directories.
    */
   directories: string[]
+
+  /**
+   * Whether tags were inspected alongside releases.
+   */
+  preferTags: boolean
 
   /**
    * Whether recursive scanning mode is enabled.
@@ -306,46 +396,6 @@ interface JsonReportAction {
 }
 
 /**
- * Top-level machine-readable report emitted by `--json`.
- */
-interface JsonReport {
-  /**
-   * Entries filtered out by the selected update mode.
-   */
-  blockedByMode: JsonReportUpdate[]
-
-  /**
-   * Entries skipped during update checks.
-   */
-  skipped: JsonReportUpdate[]
-
-  /**
-   * Actionable updates after filtering.
-   */
-  updates: JsonReportUpdate[]
-
-  /**
-   * Effective options that shaped the report.
-   */
-  options: JsonReportOptions
-
-  /**
-   * Aggregate counts for the current run.
-   */
-  summary: JsonReportSummary
-
-  /**
-   * Overall outcome for the current run.
-   */
-  status: JsonReportStatus
-
-  /**
-   * Version of the JSON payload schema.
-   */
-  schemaVersion: 1
-}
-
-/**
  * Build the machine-readable JSON report returned by `--json`.
  *
  * @param options - Current CLI state and computed update data.
@@ -354,24 +404,39 @@ interface JsonReport {
 export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
   let cwd = resolve(options.cwd ?? process.cwd())
 
+  /**
+   * Runner labels travel alongside actions from the scan onwards, but they are
+   * a different kind of entry, so the report keeps them apart.
+   */
+  let runnerUpdates = options.outdated.filter(update => isRunnerUpdate(update))
+  let actionUpdates = options.outdated.filter(update => !isRunnerUpdate(update))
+  let scannedRunners = options.scanResult.actions.filter(action =>
+    isRunnerAction(action),
+  )
+
   return {
     summary: {
-      totalBreakingUpdates: options.outdated.filter(update => update.isBreaking)
+      totalBreakingUpdates: actionUpdates.filter(update => update.isBreaking)
         .length,
+      totalActions: options.scanResult.actions.length - scannedRunners.length,
       totalCompositeActions: options.scanResult.compositeActions.size,
       totalWorkflows: options.scanResult.workflows.size,
       totalActionsChecked: options.actionsToCheckCount,
       totalBlockedByMode: options.blockedByMode.length,
-      totalActions: options.scanResult.actions.length,
-      totalUpdates: options.outdated.length,
+      totalBlockedByAge: options.blockedByAge.length,
+      totalRunnerUpdates: runnerUpdates.length,
       totalSkipped: options.skipped.length,
+      totalRunners: scannedRunners.length,
+      totalUpdates: actionUpdates.length,
     },
     options: {
       directories: options.directories.map(directory =>
         serializeDirectoryPath(directory, cwd),
       ),
+      minAgeExcludePatterns: options.minAgeExcludePatterns,
       excludePatterns: options.excludePatterns,
       includeBranches: options.includeBranches,
+      preferTags: options.preferTags,
       recursive: options.recursive,
       minAge: options.minAge,
       style: options.style,
@@ -383,8 +448,12 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
     blockedByMode: options.blockedByMode.map(update =>
       serializeUpdate(update, cwd),
     ),
-    updates: options.outdated.map(update => serializeUpdate(update, cwd)),
+    blockedByAge: options.blockedByAge.map(update =>
+      serializeUpdate(update, cwd),
+    ),
     skipped: options.skipped.map(update => serializeUpdate(update, cwd)),
+    updates: actionUpdates.map(update => serializeUpdate(update, cwd)),
+    runners: runnerUpdates.map(update => serializeUpdate(update, cwd)),
     status: options.status,
     schemaVersion: 1,
   }
@@ -478,4 +547,24 @@ function serializeDirectoryPath(directory: string, cwd: string): string {
   }
 
   return relativePath
+}
+
+/**
+ * Tell a scanned `runs-on` label apart from an action reference.
+ *
+ * @param action - Scanned entry from the core pipeline.
+ * @returns True when the entry describes a runner label.
+ */
+function isRunnerAction(action: ActionUpdate['action']): boolean {
+  return action.type === 'runner'
+}
+
+/**
+ * Tell a runner label update apart from an action update.
+ *
+ * @param update - Update entry from the core pipeline.
+ * @returns True when the entry describes a `runs-on` label.
+ */
+function isRunnerUpdate(update: ActionUpdate): boolean {
+  return isRunnerAction(update.action)
 }

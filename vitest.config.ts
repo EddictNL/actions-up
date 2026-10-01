@@ -1,6 +1,6 @@
 import { defineConfig, mergeConfig } from 'vitest/config'
 
-import viteConfig from './vite.config'
+import viteConfig from './vite.config.ts'
 
 export default defineConfig(
   mergeConfig(viteConfig, {
@@ -12,6 +12,7 @@ export default defineConfig(
           branches: 100,
           lines: 100,
         },
+        exclude: ['test/**'],
         provider: 'v8',
       },
     },

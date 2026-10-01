@@ -1,7 +1,10 @@
 import type { GitHubClientContext } from '../../types/github-client-context'
+import type { GitHubReleasePayload } from './normalize-release'
 import type { ReleaseInfo } from '../../types/release-info'
 
 import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { isCommitSha } from '../versions/is-commit-sha'
+import { normalizeRelease } from './normalize-release'
 import { makeRequest } from './make-request'
 
 /**
@@ -28,15 +31,7 @@ export async function getAllReleases(
       context,
       `/repos/${owner}/${repo}/releases?per_page=${limit}`,
     )
-    let releases = releasesResp.data as {
-      target_commitish: string | null
-      published_at: string
-      name: string | null
-      body: string | null
-      prerelease: boolean
-      html_url: string
-      tag_name: string
-    }[]
+    let releases = releasesResp.data as GitHubReleasePayload[]
 
     let releaseInfos: ReleaseInfo[] = []
     let i = 0
@@ -44,20 +39,12 @@ export async function getAllReleases(
       let sha: string | null = null
       if (i === 0 && release.tag_name) {
         sha =
-          isLikelySha(release.target_commitish) ?
+          isCommitSha(release.target_commitish) ?
             release.target_commitish
           : null
       }
 
-      releaseInfos.push({
-        publishedAt: new Date(release.published_at),
-        name: release.name ?? release.tag_name,
-        description: release.body ?? null,
-        isPrerelease: release.prerelease,
-        version: release.tag_name,
-        url: release.html_url,
-        sha,
-      })
+      releaseInfos.push(normalizeRelease(release, sha))
       i++
     }
 
@@ -68,12 +55,4 @@ export async function getAllReleases(
     }
     throw error
   }
-}
-
-function isLikelySha(value: unknown): value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    return false
-  }
-  let normalized = value.replace(/^v/u, '')
-  return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }

@@ -1,6 +1,9 @@
 import pc from 'picocolors'
 
+import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
+
+import { groupByIdentifier } from './group-by-identifier'
 
 /**
  * Prints a warning message for actions that were skipped during scanning.
@@ -12,7 +15,7 @@ import type { UpdateStyle } from '../types/update-style'
 export function printSkippedWarning(
   skipped: {
     action: { version?: string | null; uses?: string; name: string }
-    skipReason?: 'unsupported-style' | 'unknown' | 'branch'
+    skipReason?: ActionUpdate['skipReason']
     currentVersion: string | null
   }[],
   includeBranches: boolean,
@@ -23,6 +26,36 @@ export function printSkippedWarning(
   )
   let unsupportedStyleSkipped = skipped.filter(
     update => update.skipReason === 'unsupported-style',
+  )
+  let tagFamilySkipped = skipped.filter(
+    update => update.skipReason === 'tag-family',
+  )
+  let notComparableSkipped = skipped.filter(
+    update => update.skipReason === 'not-comparable',
+  )
+  let referenceTypeSkipped = skipped.filter(
+    update => update.skipReason === 'ref-type-unavailable',
+  )
+  let checkFailedSkipped = skipped.filter(
+    update => update.skipReason === 'check-failed',
+  )
+
+  /**
+   * Every reason without a dedicated group still has to reach the user, so a
+   * new `skipReason` is reported here until it gets its own wording instead of
+   * disappearing from the output.
+   */
+  let groupedReasons = new Set([
+    'ref-type-unavailable',
+    'unsupported-style',
+    'not-comparable',
+    'check-failed',
+    'tag-family',
+    'branch',
+  ])
+  let otherSkipped = skipped.filter(
+    update =>
+      update.skipReason !== undefined && !groupedReasons.has(update.skipReason),
   )
 
   if (branchSkipped.length > 0) {
@@ -41,6 +74,38 @@ export function printSkippedWarning(
       : 'that could not be updated with the current style'
     printSkippedGroup(unsupportedStyleSkipped, reason)
   }
+
+  if (tagFamilySkipped.length > 0) {
+    printSkippedGroup(
+      tagFamilySkipped,
+      'whose tag family differs from the latest release (check them manually)',
+    )
+  }
+
+  if (notComparableSkipped.length > 0) {
+    printSkippedGroup(
+      notComparableSkipped,
+      'that cannot be compared with the latest tag as versions (check them manually)',
+    )
+  }
+
+  if (referenceTypeSkipped.length > 0) {
+    printSkippedGroup(
+      referenceTypeSkipped,
+      'whose reference type could not be resolved (GitHub API request failed)',
+    )
+  }
+
+  if (checkFailedSkipped.length > 0) {
+    printSkippedGroup(
+      checkFailedSkipped,
+      'whose update check failed (see warnings above)',
+    )
+  }
+
+  if (otherSkipped.length > 0) {
+    printSkippedGroup(otherSkipped, 'that could not be checked')
+  }
 }
 
 function printSkippedGroup(
@@ -50,15 +115,15 @@ function printSkippedGroup(
   }[],
   reason: string,
 ): void {
+  let grouped = groupByIdentifier(skipped)
+
   let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
-  let form = pluralRules.select(skipped.length)
+  let form = pluralRules.select(grouped.length)
   let noun = form === 'one' ? 'action' : 'actions'
 
-  console.info(pc.yellow(`\n⚠️  Skipped ${skipped.length} ${noun} ${reason}`))
-  for (let update of skipped) {
-    let identifier =
-      update.action.uses ??
-      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
-    console.info(pc.gray(`   • ${identifier}`))
+  console.info(pc.yellow(`\n⚠️  Skipped ${grouped.length} ${noun} ${reason}`))
+  for (let { identifier, count } of grouped) {
+    let suffix = count > 1 ? ` (×${count})` : ''
+    console.info(pc.gray(`   • ${identifier}${suffix}`))
   }
 }

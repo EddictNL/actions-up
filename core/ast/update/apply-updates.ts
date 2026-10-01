@@ -2,6 +2,8 @@ import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
 
+import { buildRunsOnPattern } from '../../runners/runs-on-line'
+
 /**
  * Regex capture groups for parsing `uses:` lines in YAML files.
  */
@@ -35,6 +37,44 @@ interface MatchGroups {
 }
 
 /**
+ * Regex capture groups for parsing `runs-on:` lines in workflow files.
+ */
+interface RunsOnMatchGroups {
+  /**
+   * Trailing inline comment after the label, if any.
+   */
+  comment?: string
+
+  /**
+   * Context before the label, including indentation, key and spaces.
+   */
+  prefix: string
+
+  /**
+   * Quote character around the label or empty string for unquoted values.
+   */
+  quote: string
+
+  /**
+   * Trailing spaces after the label.
+   */
+  after: string
+
+  /**
+   * Carriage return closing the line in a CRLF file, if present.
+   */
+  eol: string
+}
+
+/**
+ * Matches a runner label that is safe to write back.
+ *
+ * Target labels come from the local runner table, so this only guards against a
+ * caller assembling an update by hand.
+ */
+const RUNNER_LABEL_VALUE = /^[a-z]+-\d+(?:\.\d+)?$/u
+
+/**
  * Apply updates using the already-resolved target refs.
  *
  * @param updates - Array of updates to apply.
@@ -53,97 +93,112 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
     updatesByFile.set(file, fileUpdates)
   }
 
-  let filePromises = [...updatesByFile.entries()].map(
-    async ([filePath, fileUpdates]) => {
-      let content = await readFile(filePath, 'utf8')
+  let filePromises = [...updatesByFile].map(async ([filePath, fileUpdates]) => {
+    let content = await readFile(filePath, 'utf8')
 
-      for (let update of fileUpdates) {
-        let targetReference = update.targetRef ?? update.latestSha
-        let targetReferenceStyle =
-          update.targetRefStyle ?? (update.latestSha ? 'sha' : null)
+    for (let update of fileUpdates) {
+      /**
+       * Skipped entries carry lookup data (including `latestSha`) that must
+       * never be written back, so they are dropped before the fallback chain
+       * below can turn that data into a reference.
+       */
+      if (update.status === 'skipped') {
+        continue
+      }
 
-        if (!targetReference || !targetReferenceStyle) {
-          continue
-        }
+      if (update.action.type === 'runner') {
+        content = rewriteRunsOn(content, update)
+        continue
+      }
 
-        function escapeRegExp(string_: string): string {
-          return string_.replaceAll(/[$()*+\-./?[\\\]^{|}]/gu, String.raw`\$&`)
-        }
+      let targetReference = update.targetRef ?? update.latestSha
+      let targetReferenceStyle =
+        update.targetRefStyle ?? (update.latestSha ? 'sha' : null)
 
-        let escapedName = escapeRegExp(update.action.name)
-        let escapedVersion =
-          update.currentVersion ? escapeRegExp(update.currentVersion) : ''
+      if (!targetReference || !targetReferenceStyle) {
+        continue
+      }
 
-        if (escapedName.includes('\n') || escapedName.includes('\r')) {
-          console.error(`Invalid action name: ${update.action.name}`)
-          continue
-        }
+      let escapedName = escapeRegExp(update.action.name)
 
-        if (
-          escapedVersion &&
-          (escapedVersion.includes('\n') || escapedVersion.includes('\r'))
-        ) {
-          console.error(`Invalid version: ${update.currentVersion}`)
-          continue
-        }
+      if (escapedName.includes('\n') || escapedName.includes('\r')) {
+        console.error(`Invalid action name: ${update.action.name}`)
+        continue
+      }
 
-        if (
-          targetReference.includes('\n') ||
-          targetReference.includes('\r') ||
-          targetReference.trim() === ''
-        ) {
-          console.error(`Invalid target ref: ${targetReference}`)
-          continue
-        }
+      let escapedVersion =
+        update.currentVersion ? escapeRegExp(update.currentVersion) : ''
 
-        if (
-          targetReferenceStyle === 'sha' &&
-          !/^[\da-f]{40}$/iu.test(targetReference)
-        ) {
-          console.error(`Invalid SHA format: ${targetReference}`)
-          continue
-        }
+      if (
+        escapedVersion &&
+        (escapedVersion.includes('\n') || escapedVersion.includes('\r'))
+      ) {
+        console.error(`Invalid version: ${update.currentVersion}`)
+        continue
+      }
 
-        /**
-         * Matches `uses` key (optionally quoted for JSON-style YAML).
-         */
-        let usesKey = String.raw`['"]?\buses\b['"]?\s*:\s*`
+      if (
+        targetReference.includes('\n') ||
+        targetReference.includes('\r') ||
+        targetReference.trim() === ''
+      ) {
+        console.error(`Invalid target ref: ${targetReference}`)
+        continue
+      }
 
-        /**
-         * Prefix captures context before `uses:`:
-         *
-         * - Start of line + whitespace + optional `-` (standard YAML)
-         * - OR `{`, `[`, `,` + whitespace (JSON-style flow syntax).
-         */
-        let prefixPattern =
-          String.raw`(?:^[^\S\n]*(?:-[^\S\n]*)?|[{\[,][^\S\n]*)` + usesKey
+      if (
+        targetReferenceStyle === 'sha' &&
+        !/^[\da-f]{40}$/iu.test(targetReference)
+      ) {
+        console.error(`Invalid SHA format: ${targetReference}`)
+        continue
+      }
 
-        /**
-         * Match `uses:` + action@version (quoted/unquoted, flow or block).
-         */
-        let pattern = new RegExp(
-          String.raw`(?<prefix>${prefixPattern})` +
-            /**
-             * Optional quote around the ref.
-             */
-            String.raw`(?<quote>['"]?)` +
-            /**
-             * Action name before @.
-             */
-            String.raw`(?<name>${escapedName})@${escapedVersion}` +
-            String.raw`\k<quote>` +
+      let boundary =
+        escapedVersion ? String.raw`(?=(?:['"]|[ \t\]}{,#]|$))` : ''
+
+      /**
+       * Matches `uses` key (optionally quoted for JSON-style YAML).
+       */
+      let usesKey = String.raw`['"]?\buses\b['"]?\s*:\s*`
+
+      /**
+       * Prefix captures context before `uses:`:
+       *
+       * - Start of line + whitespace + optional `-` (standard YAML)
+       * - OR `{`, `[`, `,` + whitespace (JSON-style flow syntax).
+       */
+      let prefixPattern =
+        String.raw`(?:^[^\S\n]*(?:-[^\S\n]*)?|[{\[,][^\S\n]*)` + usesKey
+
+      /**
+       * Match `uses:` + action@version (quoted/unquoted, flow or block).
+       */
+      let pattern = new RegExp(
+        `(?<prefix>${prefixPattern})` +
+          /**
+           * Optional quote around the ref.
+           */
+          `(?<quote>['"]?)` +
+          /**
+           * Action name before @.
+           */
+          `(?<name>${escapedName})@${escapedVersion}${boundary}${
+            String.raw`\k<quote>`
             /**
              * Trailing delimiters/spaces after the ref.
              */
-            String.raw`(?<after>[ \t\]}{,]*)` +
+          }${
+            String.raw`(?<after>[ \t\]}{,]*)`
             /**
              * Existing inline comment (if any).
              */
-            String.raw`(?<comment>[^\S\r\n]*#[^\r\n]*)?`,
-          'gm',
-        )
+          }${String.raw`(?<comment>[^\S\r\n]*#[^\r\n]*)?`}`,
+        'gm',
+      )
 
-        content = content.replace(
+      function rewrite(input: string): string {
+        return input.replace(
           pattern,
           (matched: string, ...captures: unknown[]) => {
             let offset = captures.at(-3) as number
@@ -158,8 +213,8 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
             /**
              * Avoid inserting a comment mid-line when more content follows.
              * Exception: when currentVersion is missing, trailing content may
-             * be the original unparsed version suffix — allow comment in that
-             * case.
+             * be the original unparsed version suffix, so the comment is
+             * allowed in that case.
              */
             let hasTrailingContent = restOfLine.trim().length > 0
             let spacer = groups.after.endsWith(' ') ? '' : ' '
@@ -185,15 +240,100 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
         )
       }
 
-      await writeFile(filePath, content, 'utf8')
+      /**
+       * Rewrite only the occurrence the update was scanned from, so accepting
+       * one entry never touches an identical reference the user left alone.
+       * Without a line number every match is rewritten, which is the only
+       * sensible reading for a caller that did not record positions.
+       */
+      let lineNumber = update.action.line
+
+      if (lineNumber && lineNumber > 0) {
+        let lines = content.split('\n')
+        let lineIndex = lineNumber - 1
+
+        /**
+         * A recorded line that no longer exists means the scan is stale, which
+         * is a reason to write nothing rather than to fall back to rewriting
+         * every match.
+         */
+        if (lineIndex < lines.length) {
+          lines[lineIndex] = rewrite(lines[lineIndex]!)
+          content = lines.join('\n')
+        }
+      } else {
+        content = rewrite(content)
+      }
+    }
+
+    await writeFile(filePath, content, 'utf8')
+  })
+
+  await Promise.all(filePromises)
+}
+
+/**
+ * Rewrite the `runs-on` label on the single line the update was scanned from.
+ *
+ * A runner label is a literal value rather than a resolvable ref, so it needs
+ * its own writer: the `uses:` pattern below matches `name@ref` pairs and would
+ * never see it.
+ *
+ * @param content - Current file content.
+ * @param update - Runner update to write.
+ * @returns File content with the label replaced, unchanged when it did not
+ *   match.
+ */
+function rewriteRunsOn(content: string, update: ActionUpdate): string {
+  let targetLabel = update.targetRef
+  let currentLabel = update.currentVersion
+  let lineNumber = update.action.line
+
+  if (!targetLabel || !currentLabel || !lineNumber || lineNumber <= 0) {
+    return content
+  }
+
+  if (!RUNNER_LABEL_VALUE.test(targetLabel)) {
+    console.error(`Invalid runner label: ${targetLabel}`)
+    return content
+  }
+
+  let lines = content.split('\n')
+  let lineIndex = lineNumber - 1
+
+  /**
+   * A recorded line that no longer exists means the scan is stale, which is a
+   * reason to write nothing.
+   */
+  if (lineIndex >= lines.length) {
+    return content
+  }
+
+  lines[lineIndex] = lines[lineIndex]!.replace(
+    buildRunsOnPattern(currentLabel),
+    (_matched: string, ...captures: unknown[]) => {
+      let groups = captures.at(-1) as RunsOnMatchGroups
+      let label = `${groups.quote}${targetLabel}${groups.quote}`
+      let tail = `${groups.after}${groups.comment ?? ''}${groups.eol}`
+      return `${groups.prefix}${label}${tail}`
     },
   )
 
-  await Promise.all(filePromises)
+  return lines.join('\n')
 }
 
 function looksLikeInlineVersionComment(comment: string): boolean {
   return /^#\s*[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?\s*$/u.test(
     comment.trim(),
   )
+}
+
+/**
+ * Escape a string for literal use inside a regular expression.
+ *
+ * @param string_ - Raw string to escape.
+ * @returns Escaped string safe to embed in a pattern.
+ */
+function escapeRegExp(string_: string): string {
+  return string_.replaceAll(/[$()*+\-./?[\\\]^{|}]/gu, String.raw`\$&`)
 }

@@ -24,6 +24,8 @@ reproducible CI, or preserve tag-style references when you need to stay on tags.
   `action.yml`/`action.yaml`)
 - **Reusable Workflows**: Detects and updates reusable workflow calls at the job
   level
+- **Runner Images**: Detects outdated `runs-on` labels and moves them to the
+  newest generally available GitHub-hosted image
 - **Flexible update styles**: Use SHA pinning by default, or preserve tag-style
   references with `--style preserve`
 - **Configurable detection**: Detect updates by version labels (default) or by
@@ -103,7 +105,8 @@ Per-project
 npm install --save-dev actions-up
 ```
 
-Alternatively, you can install Actions Up with [Homebrew](https://brew.sh)
+Alternatively, you can install Actions Up with
+[Homebrew](https://formulae.brew.sh/formula/actions-up)
 
 ```bash
 brew install actions-up
@@ -156,6 +159,15 @@ npx actions-up --json
 `--json` is report-only: it never writes files, skips the interactive prompt,
 and cannot be combined with `--yes`.
 
+Alongside `updates`, the report lists what was left out: `skipped`, plus
+`blockedByMode` for actions `--mode` held back and `blockedByAge` for actions
+the cool-down held back. `status` describes the actionable updates only, so it
+can read `up-to-date` while those lists are not empty.
+
+Runner updates appear in `runners`, with `summary.totalRunnerUpdates` and
+`summary.totalRunners` counting available updates and scanned labels. `updates`,
+`summary.totalUpdates` and `summary.totalActions` exclude runners.
+
 ### Custom Directory
 
 By default, Actions Up scans `.github`.
@@ -188,6 +200,47 @@ skipped to avoid changing intentionally floating references. Skipped entries are
 listed in the output. To include them in update checks, pass
 `--include-branches`.
 
+### Tag Families
+
+Some repositories publish several independent tag families at once — npm
+releases under `v1.2.3` and an action under `actions-v1.2.3`, for example. A
+candidate from the wrong family resolves to a real commit but to the wrong
+artifact, so a reference from a named family is resolved from that family's own
+tags rather than from the repository's latest release.
+
+This works for every update style: `actions-v1.2.3` updates to `actions-v1.3.0`,
+and a SHA pin is matched by family through the `# actions-v1.2.3` comment
+written next to it. When the family cannot be resolved — it has no other
+members, or the repository answers with an unrelated family — the reference is
+listed in the output instead of being rewritten.
+
+### Runner Images
+
+Actions Up updates `runs-on` labels, such as `ubuntu-22.04` → `ubuntu-24.04`, to
+the newest stable GitHub-hosted image in its bundled catalog. Upgrade Actions Up
+to receive new images.
+
+Only known, versioned `ubuntu-*`, `macos-*` and `windows-*` labels without
+suffixes are supported. The key and string value must share a line; quotes and
+comments are preserved.
+
+Arrays, runner groups, self-hosted/custom labels, `*-latest`, expressions,
+matrix values, YAML anchors and flow mappings are skipped. Retired and unknown
+images are ignored; preview images are never update targets.
+
+Runner updates appear as `runner/<family>` in the interactive list. Use
+`--exclude '^runner/'` or `# actions-up-ignore` to skip them.
+
+### Quiet Mode
+
+Use `--quiet` (`-q`) to hide the skipped and blocked-update warnings (for
+example, actions intentionally pinned to branches). Other output — results,
+applied updates, and errors — is unchanged.
+
+```bash
+npx actions-up --yes --quiet
+```
+
 ### Update Mode
 
 By default, Actions Up allows major updates. Use `--mode` to limit updates:
@@ -200,6 +253,9 @@ npx actions-up --mode patch
 In `minor` and `patch` modes, Actions Up tries to find the newest compatible tag
 first (for example, from `@v4` in `minor` mode it will choose the latest
 `v4.x.y`). If no compatible version exists, that action is skipped.
+
+`runs-on` updates count as major changes and appear in `blockedByMode` when
+`--mode minor` or `--mode patch` is used.
 
 ### Update Style
 
@@ -215,9 +271,60 @@ Use `--style preserve` to keep the current reference style:
 npx actions-up --style preserve
 ```
 
-`preserve` keeps tag references on tags and SHA references on SHAs. For example,
-`actions/checkout@v5` updates to `actions/checkout@v6.0.2`, while a SHA-pinned
-action continues updating to the latest resolved SHA.
+`preserve` keeps tag references on tags and SHA references on SHAs. Tag refs
+also keep their granularity, so `actions/checkout@v5` updates to
+`actions/checkout@v6`, while `actions/checkout@v5.0` updates to
+`actions/checkout@v6.0`. A SHA-pinned action continues updating to the latest
+resolved SHA.
+
+Actions Up only writes tags that actually exist in the action repository.
+Floating tag conventions differ between publishers, so when the preferred
+granularity is not published, the closest existing tag is used instead:
+
+- `astral-sh/setup-uv@v7` updates to `astral-sh/setup-uv@v8.3.2`, because the
+  publisher does not maintain a floating `v8` tag
+- A broader floating tag is preferred when it points at the latest release, so a
+  `v6.1`-style reference may resolve to `v6` when `v6.2` does not exist
+
+Keep in mind that a broader floating tag moves with future releases, so it may
+cross minor version boundaries over time even when the update was selected with
+`--mode patch`.
+
+Use `--style semver` to rewrite tag references to the conventional floating tag
+for the selected `--mode`, regardless of the granularity used in the workflow:
+
+```bash
+npx actions-up --style semver
+npx actions-up --style semver --mode patch
+```
+
+With `--mode major` or `--mode minor` the preferred form is `v<major>`, and with
+`--mode patch` it is `v<major>.<minor>`. The same existence rules apply: when
+the publisher does not provide the preferred floating tag, the closest existing
+tag is used, falling back to the exact version. SHA-pinned references keep
+updating to the latest resolved SHA and are never converted to tags.
+
+### Prefer Tags
+
+Some repositories stop publishing GitHub Releases but keep tagging new versions
+(for example, `bridgecrewio/checkov-action`, whose latest release dates back to
+2022 while tags stay current). By default, Actions Up trusts the latest release,
+so such actions resolve to an outdated version.
+
+Use `--prefer-tags` to also inspect repository tags when a release exists and
+take whichever version is higher:
+
+```bash
+npx actions-up --prefer-tags
+```
+
+The comparison covers the first 100 tags returned by the GitHub API and costs
+one extra API request per action, plus a few more when a tag wins the
+comparison.
+
+Even without this flag, SHA-pinned actions whose inline version comment is
+higher than the resolved latest version are never downgraded: such updates are
+skipped with a warning suggesting `--prefer-tags`.
 
 `--style` controls how updates are written to files. It does not change how
 updates are detected.
@@ -332,7 +439,7 @@ jobs:
             lines.push('Run `npx actions-up` locally to review and apply updates.')
 
             writeFileSync('actions-up-report.md', lines.join('\n'))
-            EOF
+          EOF
 
             echo "has-updates=true" >> $GITHUB_OUTPUT
             echo "update-count=$UPDATE_COUNT" >> $GITHUB_OUTPUT
@@ -361,16 +468,15 @@ jobs:
             const fs = require('fs');
             const report = fs.readFileSync('actions-up-report.md', 'utf8');
             const hasUpdates = '${{ steps.actions-check.outputs.has-updates }}' === 'true';
-            const updateCount = '${{ steps.actions-check.outputs.update-count }}';
 
             // Check if we already commented
-            const comments = await github.rest.issues.listComments({
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number
             });
 
-            const botComment = comments.data.find(comment =>
+            const botComment = comments.find(comment =>
               comment.user.type === 'Bot' &&
               comment.body.includes('GitHub Actions Update Report')
             );
@@ -516,8 +622,29 @@ Use CLI excludes or YAML ignore comments.
 npx actions-up --exclude "my-org/.*" --exclude ".*/internal-.*"
 ```
 
+Updates released less than 1 day ago are skipped by default. This cool-down
+protects against supply-chain attacks through freshly published releases. Use
+`--min-age` to change the threshold, or set it to `0` to disable the cool-down:
+
 ```bash
 npx actions-up --min-age 7
+```
+
+Versions resolved from tags (repositories without releases, or `--prefer-tags`
+results) honor the cool-down using the tag's commit or tagger date.
+
+When the latest release is too new, the older releases are checked in turn and
+the newest one that clears the cool-down is offered instead. The walk never
+rises above the latest release, and it skips prereleases unless the pinned
+version is itself a prerelease. An action is reported as held back only when no
+release satisfies both the cool-down and `--mode`.
+
+Use `--min-age-exclude` to skip the cool-down for trusted actions, such as your
+own reusable workflows. It takes the same regex patterns as `--exclude`; anchor
+them so that look-alike owners do not match:
+
+```bash
+npx actions-up --min-age-exclude "^my-org/"
 ```
 
 Ignore comments (file/block/next-line/inline):

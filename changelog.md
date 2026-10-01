@@ -1,5 +1,197 @@
 # Changelog
 
+## v1.21.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.20.1...v1.21.0)
+
+### 🚀 Features
+
+- Add min-age-exclude flag to skip the cool-down for matching actions
+  ([53423da](https://github.com/azat-io/actions-up/commit/53423da))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.20.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.20.0...v1.20.1)
+
+### 🐞 Bug Fixes
+
+- Ignore non-comparable tags when selecting latest version
+  ([9ca6535](https://github.com/azat-io/actions-up/commit/9ca6535))
+- Stop treating v-prefixed commitish as a commit sha
+  ([d71a7c5](https://github.com/azat-io/actions-up/commit/d71a7c5))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.20.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.19.0...v1.20.0)
+
+### 🚀 Features
+
+- Report cool-down holdbacks in the json output
+  ([571c993](https://github.com/azat-io/actions-up/commit/571c993))
+- Support updating runs-on runner labels
+  ([a61955c](https://github.com/azat-io/actions-up/commit/a61955c))
+
+### 🐞 Bug Fixes
+
+- Never write a floating tag without verifying its commit
+  ([a78a039](https://github.com/azat-io/actions-up/commit/a78a039))
+- Never report a non-version tag as an update
+  ([891bbcf](https://github.com/azat-io/actions-up/commit/891bbcf))
+- Never pin a reference whose type lookup failed
+  ([dae2dc0](https://github.com/azat-io/actions-up/commit/dae2dc0))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+- George Song ([@gsong](https://github.com/gsong))
+
+## v1.19.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.18.0...v1.19.0)
+
+### 🚀 Features
+
+- Resolve updates within a prefixed tag family
+  ([5b17230](https://github.com/azat-io/actions-up/commit/5b17230))
+
+### 🐞 Bug Fixes
+
+- Detect reference type per pin instead of per action
+  ([95876c1](https://github.com/azat-io/actions-up/commit/95876c1))
+- Never write back updates that were skipped
+  ([bca48d1](https://github.com/azat-io/actions-up/commit/bca48d1))
+- Report every skipped action regardless of skip reason
+  ([d09c783](https://github.com/azat-io/actions-up/commit/d09c783))
+- Never update a reference across tag families
+  ([87f1e86](https://github.com/azat-io/actions-up/commit/87f1e86))
+- Recover the tag family of a sha pin from its version comment
+  ([98a7020](https://github.com/azat-io/actions-up/commit/98a7020))
+- Apply tag families to update styles and modes
+  ([332367c](https://github.com/azat-io/actions-up/commit/332367c))
+- Rewrite only the reference the update was scanned from
+  ([be33505](https://github.com/azat-io/actions-up/commit/be33505))
+- Report invalid mode and style as a normal cli error
+  ([4ba83c6](https://github.com/azat-io/actions-up/commit/4ba83c6))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.18.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.17.1...v1.18.0)
+
+### 🚀 Features
+
+- Add prefer-tags flag to check repository tags when a release exists
+  ([3833ee4](https://github.com/azat-io/actions-up/commit/3833ee4))
+
+### 🐞 Bug Fixes
+
+- Prevent downgrades of sha-pinned actions when resolved version is older
+  ([e0d0b63](https://github.com/azat-io/actions-up/commit/e0d0b63))
+- Resolve publication date for tag-resolved versions
+  ([89665bb](https://github.com/azat-io/actions-up/commit/89665bb))
+- Harden downgrade guard against floating versions and non-version comments
+  ([984681a](https://github.com/azat-io/actions-up/commit/984681a))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.17.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.17.0...v1.17.1)
+
+### 🐞 Bug Fixes
+
+- Deduplicate repeated actions in skipped update warnings
+  ([68abea9](https://github.com/azat-io/actions-up/commit/68abea9))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.17.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.16.0...v1.17.0)
+
+### 🚀 Features
+
+- Add semver update style
+  ([88c666a](https://github.com/azat-io/actions-up/commit/88c666a))
+
+### 🐞 Bug Fixes
+
+- Avoid writing nonexistent tag references in preserve style
+  ([b8d0c2f](https://github.com/azat-io/actions-up/commit/b8d0c2f))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.16.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.15.0...v1.16.0)
+
+### 🚀 Features
+
+- Skip updates released less than one day ago by default
+  ([cfccd4c](https://github.com/azat-io/actions-up/commit/cfccd4c))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.15.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.14.3...v1.15.0)
+
+### 🚀 Features
+
+- Support running from any subdirectory
+  ([fadfbe8](https://github.com/azat-io/actions-up/commit/fadfbe8))
+- Add quiet flag to suppress skipped warnings
+  ([e7ffda8](https://github.com/azat-io/actions-up/commit/e7ffda8))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.14.3
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.14.2...v1.14.3)
+
+### 🐞 Bug Fixes
+
+- Restore node 18 support
+  ([cdd6000](https://github.com/azat-io/actions-up/commit/cdd6000))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.14.2
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.14.1...v1.14.2)
+
+### 🐞 Bug Fixes
+
+- Preserve tag granularity and avoid suffix duplication
+  ([0d3efe1](https://github.com/azat-io/actions-up/commit/0d3efe1))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.14.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.14.0...v1.14.1)

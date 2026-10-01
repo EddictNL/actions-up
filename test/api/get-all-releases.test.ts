@@ -2,22 +2,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { GitHubClientContext } from '../../types/github-client-context'
-
+import { createClientContext } from '../helpers/create-client-context'
 import { getAllReleases } from '../../core/api/get-all-releases'
 
 describe('getAllReleases', () => {
   beforeEach(() => vi.restoreAllMocks())
-
-  function context(): GitHubClientContext {
-    return {
-      caches: { refType: new Map(), tagInfo: new Map(), tagSha: new Map() },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      rateLimitRemaining: 5000,
-      token: 't',
-    }
-  }
 
   it('returns releases and resolves first item sha from target_commitish when looks like SHA', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -47,7 +36,7 @@ describe('getAllReleases', () => {
       ),
     )
 
-    let array = await getAllReleases(context(), {
+    let array = await getAllReleases(createClientContext(), {
       owner: 'o',
       repo: 'r',
       limit: 2,
@@ -58,30 +47,36 @@ describe('getAllReleases', () => {
     expect(array[1]!.sha).toBeNull()
   })
 
-  it('sets first item sha to null when target_commitish is not a SHA', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            published_at: '2024-01-01T00:00:00Z',
-            target_commitish: 'main',
-            tag_name: 'v1.0.0',
-            prerelease: false,
-            html_url: 'u',
-            body: null,
-            name: 'A',
-          },
-        ]),
-        { status: 200 },
-      ),
-    )
-    let array = await getAllReleases(context(), {
-      owner: 'o',
-      repo: 'r',
-      limit: 1,
-    })
-    expect(array[0]!.sha).toBeNull()
-  })
+  it.each([
+    ['a branch name', 'main'],
+    ['a v-prefixed branch name', 'v20240101'],
+  ])(
+    'sets first item sha to null when target_commitish is %s',
+    async (_description, commitish) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              published_at: '2024-01-01T00:00:00Z',
+              target_commitish: commitish,
+              tag_name: 'v1.0.0',
+              prerelease: false,
+              html_url: 'u',
+              body: null,
+              name: 'A',
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      let array = await getAllReleases(createClientContext(), {
+        owner: 'o',
+        repo: 'r',
+        limit: 1,
+      })
+      expect(array[0]!.sha).toBeNull()
+    },
+  )
 
   it('falls back name to tag_name when name is null', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -100,7 +95,7 @@ describe('getAllReleases', () => {
         { status: 200 },
       ),
     )
-    let array = await getAllReleases(context(), {
+    let array = await getAllReleases(createClientContext(), {
       owner: 'o',
       repo: 'r',
       limit: 1,
@@ -117,7 +112,11 @@ describe('getAllReleases', () => {
     )
 
     await expect(
-      getAllReleases(context(), { owner: 'o', repo: 'r', limit: 1 }),
+      getAllReleases(createClientContext(), {
+        owner: 'o',
+        repo: 'r',
+        limit: 1,
+      }),
     ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
   })
 
@@ -130,7 +129,11 @@ describe('getAllReleases', () => {
     )
 
     await expect(
-      getAllReleases(context(), { owner: 'o', repo: 'r', limit: 1 }),
+      getAllReleases(createClientContext(), {
+        owner: 'o',
+        repo: 'r',
+        limit: 1,
+      }),
     ).rejects.toHaveProperty(
       'message',
       expect.stringContaining('GitHub API error'),

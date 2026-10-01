@@ -1,19 +1,10 @@
-import type { MockInstance } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-
+import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 import { printModeWarning } from '../../cli/print-mode-warning'
 
 describe('printModeWarning', () => {
-  let consoleInfoSpy: MockInstance
-
-  beforeEach(() => {
-    consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    consoleInfoSpy.mockRestore()
-  })
+  let consoleInfoSpy = spyOnConsoleInfo()
 
   it('does nothing for empty array', () => {
     printModeWarning([], 'patch')
@@ -143,5 +134,27 @@ describe('printModeWarning', () => {
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('actions/checkout@unknown'),
     )
+  })
+
+  it('deduplicates repeated identifiers and shows occurrence count', () => {
+    let entry = {
+      action: {
+        uses: 'actions/checkout@v3',
+        name: 'actions/checkout',
+        version: 'v3',
+      },
+      currentVersion: 'v3',
+    }
+    let blocked = [entry, entry]
+
+    printModeWarning(blocked, 'patch')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action due to major/minor updates'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@v3 (×2)'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
   })
 })
