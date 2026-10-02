@@ -7,6 +7,7 @@ let helpText = `Usage:
   $ actions-up [options]
 
 Options:
+  --detect-by <strategy>     Update detection: version or commit (default: version)
   --dir <directory>          Directory to scan (repeatable). Default: .github, or . with --recursive
   --dry-run                  Preview changes without applying them
   --exclude <regex>          Exclude actions by regex (repeatable)
@@ -40,6 +41,7 @@ let parserOptions = {
   help: { type: 'boolean', short: 'h' },
   yes: { type: 'boolean', short: 'y' },
   'prefer-tags': { type: 'boolean' },
+  'detect-by': { type: 'string' },
   'dry-run': { type: 'boolean' },
   'min-age': { type: 'string' },
   style: { type: 'string' },
@@ -81,6 +83,11 @@ export interface CLIOptions {
    * Regex patterns to exclude actions by name (repeatable).
    */
   exclude?: string[]
+
+  /**
+   * Update detection strategy (version or commit).
+   */
+  detectBy?: string
 
   /**
    * Suppress skipped and blocked-update warnings.
@@ -178,6 +185,7 @@ export function parseArguments(
         minAgeExclude: values['min-age-exclude'],
         dryRun: values['dry-run'] ?? false,
         preferTags: values['prefer-tags'],
+        detectBy: values['detect-by'],
         style: values.style ?? 'sha',
         mode: values.mode ?? 'major',
         recursive: values.recursive,

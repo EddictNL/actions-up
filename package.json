@@ -1,6 +1,6 @@
 {
   "name": "@eddict/actions-up",
-  "version": "1.21.2",
+  "version": "1.21.3",
   "description": "Interactive CLI tool to update GitHub Actions with SHA pinning or preserved refs",
   "keywords": [
     "github-actions",
@@ -35,9 +35,6 @@
     "./bin",
     "./dist"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "vite build",
     "ci:changelog": "changelogithub",
@@ -95,5 +92,8 @@
   },
   "engines": {
     "node": "^18.3.0 || >=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

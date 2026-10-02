@@ -1,9 +1,9 @@
 import semver from 'semver'
 
+import type { UpdateDetection } from '../../types/update-detection'
 import type { GitHubClient } from '../../types/github-client'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
-import type { UpdateDetection } from '../../types/update-detection'
 import type { UpdateStyle } from '../../types/update-style'
 import type { ReleaseInfo } from '../../types/release-info'
 import type { TagInfo } from '../../types/tag-info'
@@ -95,9 +95,9 @@ export async function checkUpdates(
   actions: GitHubAction[],
   token?: string,
   options?: {
+    detectBy?: UpdateDetection
     includeBranches?: boolean
     client?: GitHubClient
-    detectBy?: UpdateDetection
     preferTags?: boolean
     style?: UpdateStyle
   },
@@ -533,54 +533,51 @@ export async function checkUpdates(
    * Create updates for all actions.
    */
   let updates: ActionUpdate[] = []
-  let currentTagShaCache = new Map<string, string | null>()
 
   for (let action of externalActions) {
     let cached = cache.get(buildActionKey(action))
     if (cached) {
       updates.push(
-        await applyCommitDetection(
-          createUpdate(
-            action,
-            {
-              publishedAt: cached.publishedAt,
-              version: cached.version,
-              sha: cached.sha,
-            },
-            {
-              currentRefType: cached.currentRefType,
-              skipReason: cached.skipReason,
-              status: cached.status,
-              style,
-            },
-          ),
+        createUpdate(
           action,
-          detectBy,
-          client,
-          currentTagShaCache,
+          {
+            publishedAt: cached.publishedAt,
+            version: cached.version,
+            sha: cached.sha,
+          },
+          {
+            currentRefType: cached.currentRefType,
+            skipReason: cached.skipReason,
+            status: cached.status,
+            style,
+          },
         ),
       )
     } else {
       updates.push(
-        await applyCommitDetection(
-          createUpdate(
-            action,
-            { publishedAt: null, version: null, sha: null },
-            {
-              currentRefType: deriveCurrentReferenceType(action.version),
-              style,
-            },
-          ),
+        createUpdate(
           action,
-          detectBy,
-          client,
-          currentTagShaCache,
-        )
+          { publishedAt: null, version: null, sha: null },
+          {
+            currentRefType: deriveCurrentReferenceType(action.version),
+            style,
+          },
+        ),
       )
     }
   }
 
-  return updates
+  if (detectBy !== 'commit') {
+    return updates
+  }
+
+  let currentTagShaCache = new Map<string, Promise<string | null>>()
+
+  return Promise.all(
+    updates.map(update =>
+      applyCommitDetection(update, { currentTagShaCache, client }),
+    ),
+  )
 }
 
 /**
@@ -729,6 +726,52 @@ function createUpdate(
 }
 
 /**
+ * Drop a tag update whose current tag already resolves to the latest commit.
+ *
+ * @param update - Update computed from version labels.
+ * @param context - Shared lookup context.
+ * @param context.client - GitHub API client.
+ * @param context.currentTagShaCache - Pending tag SHA lookups keyed by ref.
+ * @returns The update, marked as up to date when the commits match.
+ */
+async function applyCommitDetection(
+  update: ActionUpdate,
+  context: {
+    currentTagShaCache: Map<string, Promise<string | null>>
+    client: GitHubClient
+  },
+): Promise<ActionUpdate> {
+  let { currentTagShaCache, client } = context
+  let { currentVersion, hasUpdate, latestSha, action } = update
+
+  if (!hasUpdate || !latestSha || update.currentRefType !== 'tag') {
+    return update
+  }
+
+  /**
+   * Resolved tag references always carry a valid owner/repo name and version.
+   */
+  let [owner, repo] = action.name.split('/') as [string, string]
+  let cacheKey = buildActionKey(action)
+  let lookup = currentTagShaCache.get(cacheKey)
+  if (!lookup) {
+    lookup = fetchTagSha(client, {
+      reference: currentVersion!,
+      owner,
+      repo,
+    })
+    currentTagShaCache.set(cacheKey, lookup)
+  }
+  let currentTagSha = await lookup
+
+  if (currentTagSha && compareSha(currentTagSha, latestSha)) {
+    return { ...update, isBreaking: false, hasUpdate: false }
+  }
+
+  return update
+}
+
+/**
  * Resolve the latest version information for a tag picked from a tag listing.
  *
  * The SHA comes from the tag metadata first, then from the listing itself, and
@@ -759,6 +802,31 @@ async function resolveListedTag(
     }
   }
   return { publishedAt: meta.date, version: tag.tag, sha }
+}
+
+/**
+ * Look up the commit a tag points to, treating failures as unknown.
+ *
+ * @param client - GitHub API client.
+ * @param parameters - Request parameters.
+ * @param parameters.owner - Repository owner.
+ * @param parameters.repo - Repository name.
+ * @param parameters.reference - Tag to resolve.
+ * @returns Commit SHA, or null when it could not be resolved.
+ */
+async function fetchTagSha(
+  client: GitHubClient,
+  parameters: { reference: string; owner: string; repo: string },
+): Promise<string | null> {
+  try {
+    return await client.getTagSha(
+      parameters.owner,
+      parameters.repo,
+      parameters.reference,
+    )
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -865,69 +933,4 @@ function isRateLimitError(error: unknown): error is Error {
  */
 function buildActionKey(action: GitHubAction): string {
   return `${action.name}@${action.version ?? ''}`
-}
-
-
-async function applyCommitDetection(
-  update: ActionUpdate,
-  action: GitHubAction,
-  detectBy: UpdateDetection,
-  client: GitHubClient,
-  currentTagShaCache: Map<string, string | null>,
-): Promise<ActionUpdate> {
-  if (detectBy !== 'commit') {
-    return update
-  }
-
-  if (
-    !update.hasUpdate ||
-    !update.latestSha ||
-    update.status === 'skipped' ||
-    update.currentRefType !== 'tag' ||
-    !action.version
-  ) {
-    return update
-  }
-
-  let parsed = parseOwnerRepo(action.name)
-  if (!parsed) {
-    return update
-  }
-
-  let cacheKey = `${action.name}@${action.version}`
-  let currentTagSha: string | null
-  if (currentTagShaCache.has(cacheKey)) {
-    currentTagSha = currentTagShaCache.get(cacheKey) ?? null
-  } else {
-    try {
-      currentTagSha = await client.getTagSha(
-        parsed.owner,
-        parsed.repo,
-        action.version,
-      )
-    } catch {
-      currentTagSha = null
-    }
-    currentTagShaCache.set(cacheKey, currentTagSha)
-  }
-
-  if (currentTagSha && compareSha(currentTagSha, update.latestSha)) {
-    return { ...update, hasUpdate: false, isBreaking: false }
-  }
-
-  return update
-}
-
-function parseOwnerRepo(actionName: string): { owner: string; repo: string } | null {
-  let segments = actionName.split('/')
-  if (segments.length < 2) {
-    return null
-  }
-
-  let [owner, repo] = segments
-  if (!owner || !repo) {
-    return null
-  }
-
-  return { owner, repo }
 }

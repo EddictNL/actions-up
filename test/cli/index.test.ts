@@ -164,6 +164,7 @@ describe('run', () => {
 
     expect(checkUpdates).toHaveBeenCalledWith([action], 'token', {
       includeBranches: false,
+      detectBy: 'version',
       preferTags: false,
       style: 'sha',
       client: {},

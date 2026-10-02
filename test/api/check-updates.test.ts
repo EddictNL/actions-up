@@ -1700,8 +1700,8 @@ describe('checkUpdates', () => {
         uses: 'owner/repo@v7',
         ref: 'owner/repo@v7',
         name: 'owner/repo',
-        version: 'v7',
         type: 'external',
+        version: 'v7',
       },
     ]
 
@@ -1716,6 +1716,118 @@ describe('checkUpdates', () => {
       latestSha: 'sameSha',
       hasUpdate: false,
     })
+  })
+
+  it('keeps update in commit mode when current tag SHA differs', async () => {
+    let client = createClient({
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v7.0.1',
+        name: 'v7.0.1',
+        sha: 'newSha',
+        url: 'u',
+      }),
+      getTagSha: vi
+        .fn()
+        .mockImplementation((_owner: string, _repo: string, tag: string) =>
+          Promise.resolve(tag === 'v7' ? 'oldSha' : 'newSha'),
+        ),
+    })
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let action: GitHubAction = {
+      uses: 'owner/repo@v7',
+      ref: 'owner/repo@v7',
+      name: 'owner/repo',
+      type: 'external',
+      version: 'v7',
+    }
+
+    let result = await checkUpdates([action, { ...action }], undefined, {
+      detectBy: 'commit',
+    })
+
+    expect(
+      vi.mocked(client.getTagSha).mock.calls.filter(call => call[2] === 'v7'),
+    ).toHaveLength(1)
+    expect(result).toHaveLength(2)
+    expect(result.every(update => update.hasUpdate)).toBeTruthy()
+  })
+
+  it('keeps update in commit mode when current tag SHA lookup fails', async () => {
+    let client = createClient({
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v7.0.1',
+        name: 'v7.0.1',
+        sha: 'newSha',
+        url: 'u',
+      }),
+      getTagSha: vi
+        .fn()
+        .mockImplementation((_owner: string, _repo: string, tag: string) =>
+          tag === 'v7' ?
+            Promise.reject(new Error('boom'))
+          : Promise.resolve('newSha'),
+        ),
+    })
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let result = await checkUpdates(
+      [
+        {
+          uses: 'owner/repo@v7',
+          ref: 'owner/repo@v7',
+          name: 'owner/repo',
+          type: 'external',
+          version: 'v7',
+        },
+      ],
+      undefined,
+      { detectBy: 'commit' },
+    )
+
+    expect(result[0]?.hasUpdate).toBeTruthy()
+  })
+
+  it('skips commit lookup when there is no update', async () => {
+    let client = createClient({
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v7.0.1',
+        name: 'v7.0.1',
+        sha: 'sameSha',
+        url: 'u',
+      }),
+    })
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let result = await checkUpdates(
+      [
+        {
+          uses: 'owner/repo@v7.0.1',
+          ref: 'owner/repo@v7.0.1',
+          name: 'owner/repo',
+          version: 'v7.0.1',
+          type: 'external',
+        },
+      ],
+      undefined,
+      { detectBy: 'commit', style: 'preserve' },
+    )
+
+    expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'v7.0.1',
+    )
+    expect(result[0]?.hasUpdate).toBeFalsy()
   })
 
   it('marks update in version mode when tag label is newer even if SHAs match', async () => {
@@ -1738,8 +1850,8 @@ describe('checkUpdates', () => {
         uses: 'owner/repo@v7',
         ref: 'owner/repo@v7',
         name: 'owner/repo',
-        version: 'v7',
         type: 'external',
+        version: 'v7',
       },
     ]
 

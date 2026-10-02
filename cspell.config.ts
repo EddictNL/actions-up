@@ -8,6 +8,7 @@ export default defineConfig({
     'changelogithub',
     'commitish',
     'crosspost',
+    'eddict',
     'gitea',
     'humanwhocodes',
     'nanospinner',

@@ -14,6 +14,7 @@ import { resolveTargetReference } from '../core/updates/resolve-target-reference
 import { parseVersionComment } from '../core/versions/parse-version-comment'
 import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { matchesAnyPattern } from '../core/filters/matches-any-pattern'
+import { normalizeUpdateDetection } from './normalize-update-detection'
 import { createGitHubClient } from '../core/api/create-github-client'
 import { filterDowngradeUpdates } from './filter-downgrade-updates'
 import { resolveScanDirectories } from './resolve-scan-directories'
@@ -25,7 +26,6 @@ import { anchorDirectoryInputs } from './anchor-directory-inputs'
 import { normalizePatternList } from './normalize-pattern-list'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { normalizeUpdateStyle } from './normalize-update-style'
-import { normalizeUpdateDetection } from './normalize-update-detection'
 import { printSkippedWarning } from './print-skipped-warning'
 import { normalizeUpdateMode } from './normalize-update-mode'
 import { printMinAgeWarning } from './print-min-age-warning'
@@ -123,6 +123,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let preferTags = options.preferTags ?? false
     let mode = normalizeUpdateMode(options.mode)
     let style = normalizeUpdateStyle(options.style)
+    let detectBy = normalizeUpdateDetection(options.detectBy)
     let normalizedExcludes = normalizePatternList(options.exclude)
     let normalizedMinAgeExcludes = normalizePatternList(options.minAgeExclude)
 
@@ -161,6 +162,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             blockedByAge,
             preferTags,
             scanResult,
+            detectBy,
             outdated,
             skipped,
             status,
@@ -304,6 +306,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       client: githubClient,
       includeBranches,
       preferTags,
+      detectBy,
       style,
     })
 
