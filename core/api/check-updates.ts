@@ -3,6 +3,7 @@ import semver from 'semver'
 import type { GitHubClient } from '../../types/github-client'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
+import type { UpdateDetection } from '../../types/update-detection'
 import type { UpdateStyle } from '../../types/update-style'
 import type { ReleaseInfo } from '../../types/release-info'
 import type { TagInfo } from '../../types/tag-info'
@@ -96,12 +97,14 @@ export async function checkUpdates(
   options?: {
     includeBranches?: boolean
     client?: GitHubClient
+    detectBy?: UpdateDetection
     preferTags?: boolean
     style?: UpdateStyle
   },
 ): Promise<ActionUpdate[]> {
   let client = options?.client ?? createGitHubClient(token)
   let includeBranches = options?.includeBranches ?? false
+  let detectBy = options?.detectBy ?? 'version'
   let preferTags = options?.preferTags ?? false
   let style = options?.style ?? 'sha'
 
@@ -535,47 +538,45 @@ export async function checkUpdates(
   for (let action of externalActions) {
     let cached = cache.get(buildActionKey(action))
     if (cached) {
-      let update = createUpdate(
-        action,
-        {
-          publishedAt: cached.publishedAt,
-          version: cached.version,
-          sha: cached.sha,
-        },
-        {
-          currentRefType: cached.currentRefType,
-          skipReason: cached.skipReason,
-          status: cached.status,
-        },
+      updates.push(
+        await applyCommitDetection(
+          createUpdate(
+            action,
+            {
+              publishedAt: cached.publishedAt,
+              version: cached.version,
+              sha: cached.sha,
+            },
+            {
+              currentRefType: cached.currentRefType,
+              skipReason: cached.skipReason,
+              status: cached.status,
+              style,
+            },
+          ),
+          action,
+          detectBy,
+          client,
+          currentTagShaCache,
+        ),
       )
-
-      update = await applyCommitDetection(
-        update,
-        action,
-        detectBy,
-        client,
-        currentTagShaCache,
-      )
-
-      updates.push(update)
     } else {
-      let update = createUpdate(
-        action,
-        { publishedAt: null, version: null, sha: null },
-        {
-          currentRefType: deriveCurrentReferenceType(action.version),
-        },
+      updates.push(
+        await applyCommitDetection(
+          createUpdate(
+            action,
+            { publishedAt: null, version: null, sha: null },
+            {
+              currentRefType: deriveCurrentReferenceType(action.version),
+              style,
+            },
+          ),
+          action,
+          detectBy,
+          client,
+          currentTagShaCache,
+        )
       )
-
-      update = await applyCommitDetection(
-        update,
-        action,
-        detectBy,
-        client,
-        currentTagShaCache,
-      )
-
-      updates.push(update)
     }
   }
 
@@ -597,6 +598,7 @@ function createUpdate(
     currentRefType: ActionUpdate['currentRefType']
     skipReason?: ActionUpdate['skipReason']
     status?: ActionUpdate['status']
+    style: UpdateStyle
   },
 ): ActionUpdate {
   let { version: latestVersion, sha: latestSha, publishedAt } = latest
@@ -863,4 +865,69 @@ function isRateLimitError(error: unknown): error is Error {
  */
 function buildActionKey(action: GitHubAction): string {
   return `${action.name}@${action.version ?? ''}`
+}
+
+
+async function applyCommitDetection(
+  update: ActionUpdate,
+  action: GitHubAction,
+  detectBy: UpdateDetection,
+  client: GitHubClient,
+  currentTagShaCache: Map<string, string | null>,
+): Promise<ActionUpdate> {
+  if (detectBy !== 'commit') {
+    return update
+  }
+
+  if (
+    !update.hasUpdate ||
+    !update.latestSha ||
+    update.status === 'skipped' ||
+    update.currentRefType !== 'tag' ||
+    !action.version
+  ) {
+    return update
+  }
+
+  let parsed = parseOwnerRepo(action.name)
+  if (!parsed) {
+    return update
+  }
+
+  let cacheKey = `${action.name}@${action.version}`
+  let currentTagSha: string | null
+  if (currentTagShaCache.has(cacheKey)) {
+    currentTagSha = currentTagShaCache.get(cacheKey) ?? null
+  } else {
+    try {
+      currentTagSha = await client.getTagSha(
+        parsed.owner,
+        parsed.repo,
+        action.version,
+      )
+    } catch {
+      currentTagSha = null
+    }
+    currentTagShaCache.set(cacheKey, currentTagSha)
+  }
+
+  if (currentTagSha && compareSha(currentTagSha, update.latestSha)) {
+    return { ...update, hasUpdate: false, isBreaking: false }
+  }
+
+  return update
+}
+
+function parseOwnerRepo(actionName: string): { owner: string; repo: string } | null {
+  let segments = actionName.split('/')
+  if (segments.length < 2) {
+    return null
+  }
+
+  let [owner, repo] = segments
+  if (!owner || !repo) {
+    return null
+  }
+
+  return { owner, repo }
 }
